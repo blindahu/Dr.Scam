@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScamGuard AI - Cyber Safety for Everyone</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- High Contrast & Offline Indicator Banner -->
+  <div id="offline-banner" class="offline-banner hidden" role="alert">
+    ⚠️ Connection is unstable. Offline analysis mode enabled.
+  </div>
+
+  <header class="app-header">
+    <div class="logo-container">
+      <div class="shield-icon" aria-hidden="true">🛡️</div>
+      <h1>ScamGuard</h1>
+    </div>
+    <nav class="user-nav">
+      <button id="profile-btn" class="btn btn-outline" aria-label="User Profile">
+        <span class="user-avatar">👤</span> Profile
+      </button>
+    </nav>
+  </header>
+
+  <main class="main-container">
+    <!-- Hero / Intro Section -->
+    <section class="hero-section">
+      <h2>Is it a scam? Let's check it together.</h2>
+      <p class="subtitle">Upload, paste, or talk to analyze suspicious emails, text messages, or phone numbers safely.</p>
+    </section>
+
+    <!-- Interactive Analyzer Card -->
+    <section class="card analyzer-card">
+      <div class="tab-buttons" role="tablist">
+        <button class="tab-btn active" data-tab="text" role="tab" aria-selected="true" id="tab-text">Message / Email</button>
+        <button class="tab-btn" data-tab="phone" role="tab" aria-selected="false" id="tab-phone">Phone Number</button>
+        <button class="tab-btn" data-tab="voice" role="tab" aria-selected="false" id="tab-voice">Talk / Voice Assistant</button>
+      </div>
+
+      <!-- Tab Content: Text / Email Input -->
+      <div id="text-tab" class="tab-content active" role="tabpanel" aria-labelledby="tab-text">
+        <label for="scam-text-input" class="input-label">Paste message, email text, or header here:</label>
+        <textarea id="scam-text-input" placeholder="e.g. 'URGENT: Your bank account has been suspended. Click here to verify your identity...'" rows="4"></textarea>
+
+        <div class="upload-box">
+          <label for="file-upload" class="file-label">
+            📁 Or Upload Screenshot / Document (.jpg, .png, .eml)
+          </label>
+          <input type="file" id="file-upload" accept="image/*,.eml,.txt">
+          <span id="file-name" class="file-name-display">No file selected</span>
+        </div>
+
+        <button id="analyze-text-btn" class="btn btn-primary btn-block">Analyze Message</button>
+      </div>
+
+      <!-- Tab Content: Phone Input -->
+      <div id="phone-tab" class="tab-content hidden" role="tabpanel" aria-labelledby="tab-phone">
+        <label for="phone-input" class="input-label">Enter suspicious phone number or caller ID:</label>
+        <input type="tel" id="phone-input" placeholder="+1 (555) 019-2831" class="text-input">
+        
+        <label for="phone-notes" class="input-label" style="margin-top:12px;">What did they say or claim? (Optional):</label>
+        <input type="text" id="phone-notes" placeholder="e.g. Claimed to be IRS demanding gift cards" class="text-input">
+
+        <button id="analyze-phone-btn" class="btn btn-primary btn-block" style="margin-top:16px;">Check Phone Number</button>
+      </div>
+
+      <!-- Tab Content: Voice Assistance -->
+      <div id="voice-tab" class="tab-content hidden" role="tabpanel" aria-labelledby="tab-voice">
+        <div class="voice-assistant-container">
+          <p class="voice-instructions">Tap the microphone and tell us what you're experiencing. Talk naturally like you're explaining it to a trusted friend.</p>
+          
+          <button id="mic-btn" class="mic-button" aria-label="Start Voice Recording">
+            🎙️ <span id="mic-status">Tap to Speak</span>
+          </button>
+          
+          <div id="speech-preview" class="speech-preview hidden">
+            <p><strong>We heard:</strong> "<span id="transcript-text">...</span>"</p>
+          </div>
+          
+          <button id="analyze-voice-btn" class="btn btn-primary btn-block hidden" style="margin-top:16px;">Analyze Voice Description</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section id="result-section" class="card result-card hidden" aria-live="polite">
+      <div class="result-header">
+        <h3>Analysis Results</h3>
+        <span id="risk-badge" class="risk-badge">Calculating...</span>
+      </div>
+
+      <!-- Threat Score Gauge -->
+      <div class="score-container">
+        <div class="score-meter">
+          <div id="score-bar" class="score-bar" style="width: 0%;"></div>
+        </div>
+        <div class="score-text-wrap">
+          <span class="score-label">Scam Risk Score:</span>
+          <span id="score-value" class="score-value">0%</span>
+        </div>
+      </div>
+
+      <!-- Breakdown & Breakdown Items -->
+      <div class="breakdown-container">
+        <h4>Detailed Red Flag Breakdown:</h4>
+        <ul id="breakdown-list" class="breakdown-list">
+          <!-- Populated by JavaScript -->
+        </ul>
+      </div>
+
+      <!-- Actionable Advice Box -->
+      <div id="action-advice" class="action-advice-box">
+        <h4>💡 What you should do right now:</h4>
+        <ul id="advice-list">
+          <!-- Populated by JS -->
+        </ul>
+      </div>
+    </section>
+
+    <!-- Quick Educational Demo Examples -->
+    <section class="card educational-section">
+      <h3>Try Sample Scams to See How It Works</h3>
+      <div class="sample-buttons">
+        <button class="btn btn-secondary sample-btn" data-sample="bank">Fake Bank SMS</button>
+        <button class="btn btn-secondary sample-btn" data-sample="prize">Lottery / Prize Email</button>
+        <button class="btn btn-secondary sample-btn" data-sample="tech">Grandparent / Phone Scam</button>
+      </div>
+    </section>
+
+    <!-- Profile & History Modal -->
+    <div id="profile-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-content">
+        <button id="close-modal-btn" class="close-btn" aria-label="Close Profile Modal">&times;</button>
+        <h3 id="modal-title">User Profile & Activity Log</h3>
+        
+        <div class="profile-info">
+          <p><strong>Status:</strong> Guarded & Active</p>
+          <p><strong>Total Scams Avoided:</strong> <span id="scam-count">3</span></p>
+        </div>
+
+        <h4>Recent Scan History</h4>
+        <ul id="history-list" class="history-list">
+          <li><strong>Fake Amazon Alert:</strong> Flagged as High Risk (88%)</li>
+          <li><strong>Unknown Call (+1-800...):</strong> Flagged as Suspicious (65%)</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <p>ScamGuard AI &copy; 2026 — Accessible, Low-Bandwidth Cyber Defense for All Ages.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
