@@ -1,4 +1,9 @@
-// JavaScript App Logic: High Performance, Offline Fallbacks & Interactive Scam Analyzer
+// JavaScript App Logic with Supabase Integration
+
+// Initialize Supabase Client (Replace with your actual Supabase URL and Anon Key)
+const SUPABASE_URL = 'https://arkosoknmzfthvqvpxvb.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_i9UzYae8ms1yCkdOxRa7vw_uTpLjaSI';
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 document.addEventListener('DOMContentLoaded', () => {
   // DOM Element References
@@ -34,6 +39,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let isRecording = false;
   let recognition = null;
+  let currentUser = null;
+
+  // Check active user session on load
+  async function checkUserSession() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      currentUser = session.user;
+      document.getElementById('scam-count').textContent = "Authenticated";
+      loadUserHistory();
+    }
+  }
+  checkUserSession();
 
   // Connection Monitoring for Low Latency / Unstable Networks
   function updateOnlineStatus() {
@@ -102,10 +119,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   micBtn.addEventListener('click', () => {
     if (!recognition) {
-      alert('Speech recognition is not supported in this browser version. You can type your explanation in the text area!');
+      alert('Speech recognition is not supported in this browser version.');
       return;
     }
-
     if (!isRecording) {
       startRecording();
     } else {
@@ -117,11 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
     isRecording = true;
     micBtn.classList.add('recording');
     micStatus.textContent = 'Listening...';
-    try {
-      recognition.start();
-    } catch (e) {
-      console.log('Recognition already started');
-    }
+    try { recognition.start(); } catch (e) { console.log('Recognition already started'); }
   }
 
   function stopRecording() {
@@ -155,8 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Please paste text or select a file to analyze.');
       return;
     }
-    const contentToAnalyze = text || `Uploaded File: ${fileInput.files[0].name}`;
-    runAnalysis(contentToAnalyze, 'message');
+    runAnalysis(text || `Uploaded File: ${fileInput.files[0].name}`, 'message');
   });
 
   analyzePhoneBtn.addEventListener('click', () => {
@@ -175,96 +186,168 @@ document.addEventListener('DOMContentLoaded', () => {
     runAnalysis(voiceText, 'voice');
   });
 
-  // Core Scam Analysis Engine (Client-Side for Instant Offline / Low Latency Speed)
-  function runAnalysis(input, source) {
+  // Core Scam Analysis Engine & Supabase Logging
+  async function runAnalysis(input, source) {
     resultSection.classList.remove('hidden');
     resultSection.scrollIntoView({ behavior: 'smooth' });
 
-    let score = 15; // Base risk score
+    let score = 15;
     const flags = [];
     const advice = [];
-
     const lowerStr = input.toLowerCase();
 
-    // Key Scam Patterns Check
     if (lowerStr.includes('urgent') || lowerStr.includes('alert') || lowerStr.includes('immediately') || lowerStr.includes('locked')) {
       score += 30;
-      flags.push({ text: "<strong>Artificial Urgency:</strong> Scammers push you to act quickly before you have time to double-check.", level: "high" });
+      flags.push({ text: "<strong>Artificial Urgency:</strong> Scammers push you to act quickly.", level: "high" });
     }
-
     if (lowerStr.includes('click') || lowerStr.includes('http') || lowerStr.includes('.com') || lowerStr.includes('link')) {
       score += 25;
-      flags.push({ text: "<strong>Suspicious Link Detected:</strong> Phishing links clone real websites to steal your passwords or banking info.", level: "high" });
+      flags.push({ text: "<strong>Suspicious Link / URL Detected:</strong> Phishing links clone real sites.", level: "high" });
     }
-
-    if (lowerStr.includes('bank') || lowerStr.includes('chase') || lowerStr.includes('microsoft') || lowerStr.includes('irs') || lowerStr.includes('walmart')) {
+    if (lowerStr.includes('bank') || lowerStr.includes('chase') || lowerStr.includes('microsoft') || lowerStr.includes('irs')) {
       score += 20;
-      flags.push({ text: "<strong>Brand Impersonation:</strong> Scammers frequently claim to represent trusted companies, banks, or government agencies.", level: "medium" });
+      flags.push({ text: "<strong>Brand Impersonation:</strong> Fake agency or bank representative.", level: "medium" });
     }
-
     if (lowerStr.includes('won') || lowerStr.includes('gift card') || lowerStr.includes('prize') || lowerStr.includes('fee')) {
       score += 25;
-      flags.push({ text: "<strong>Too-Good-To-Be-True Offer:</strong> Demanding upfront fees or gift cards to release winnings is a classic fraud tactic.", level: "high" });
-    }
-
-    if (lowerStr.includes('virus') || lowerStr.includes('support') || lowerStr.includes('anydesk') || lowerStr.includes('remote')) {
-      score += 30;
-      flags.push({ text: "<strong>Remote Access Request:</strong> Legitimate tech support will never call unprompted to request access to your computer.", level: "high" });
+      flags.push({ text: "<strong>Too-Good-To-Be-True Offer:</strong> Upfront fees for rewards.", level: "high" });
     }
 
     if (flags.length === 0) {
-      flags.push({ text: "<strong>No obvious automated red flags found:</strong> However, always stay cautious if an unknown sender asks for personal info.", level: "low" });
+      flags.push({ text: "<strong>No obvious automated red flags found.</strong> Stay cautious.", level: "low" });
       score = 20;
     }
 
     score = Math.min(score, 98);
-
-    // Update UI elements
     scoreBar.style.width = `${score}%`;
     scoreValue.textContent = `${score}%`;
 
+    let riskLevelText = "Low Risk";
     if (score >= 70) {
       riskBadge.textContent = "High Risk Scam";
       riskBadge.className = "risk-badge high";
       scoreBar.style.backgroundColor = "var(--danger-color)";
-      advice.push("Do NOT click any links, open attachments, or reply to this message.");
-      advice.push("Do NOT share any personal info, passwords, or gift card numbers.");
-      advice.push("If it claims to be your bank or service, call the official number on your physical card or official website directly.");
+      riskLevelText = "High";
+      advice.push("Do NOT click links, reply, or share personal info.");
     } else if (score >= 40) {
       riskBadge.textContent = "Moderate Suspicion";
       riskBadge.className = "risk-badge medium";
       scoreBar.style.backgroundColor = "var(--warning-color)";
-      advice.push("Verify the identity of the sender using a separate trusted contact method.");
-      advice.push("Avoid clicking embedded links. Type the official URL into your browser directly.");
+      riskLevelText = "Moderate";
+      advice.push("Verify identity using official channels.");
     } else {
       riskBadge.textContent = "Likely Safe / Low Risk";
       riskBadge.className = "risk-badge low";
       scoreBar.style.backgroundColor = "var(--success-color)";
-      advice.push("Looks normal, but stay vigilant when sharing sensitive financial details.");
+      riskLevelText = "Low";
+      advice.push("Looks normal, but remain vigilant.");
     }
 
-    // Populate Lists
     breakdownList.innerHTML = flags.map(f => `<li class="flag-${f.level}">${f.text}</li>`).join('');
     adviceList.innerHTML = advice.map(a => `<li>${a}</li>`).join('');
 
-    // Save to Local User Profile / History
-    saveToHistory(input.substring(0, 30) + '...', score);
+    // Save scan result to Supabase if user is logged in
+    if (currentUser) {
+      await supabase.from('scan_history').insert({
+        user_id: currentUser.id,
+        scanned_content: input.substring(0, 250),
+        scan_type: source,
+        risk_score: score,
+        risk_level: riskLevelText
+      });
+      loadUserHistory();
+    }
   }
 
-  // Profile Modal Event Handlers
-  profileBtn.addEventListener('click', () => profileModal.classList.remove('hidden'));
+  // Profile Modal & Authentication Handlers
+  profileBtn.addEventListener('click', () => {
+    renderAuthUI();
+    profileModal.classList.remove('hidden');
+  });
+
   closeModalBtn.addEventListener('click', () => profileModal.classList.add('hidden'));
   window.addEventListener('click', (e) => {
     if (e.target === profileModal) profileModal.classList.add('hidden');
   });
 
-  function saveToHistory(itemText, score) {
-    const historyList = document.getElementById('history-list');
-    const li = document.createElement('li');
-    li.innerHTML = `<strong>${itemText}</strong>: Risk Score ${score}% (${score >= 70 ? 'High' : 'Moderate/Low'})`;
-    historyList.prepend(li);
+  function renderAuthUI() {
+    const modalContent = profileModal.querySelector('.modal-content');
+    if (currentUser) {
+      modalContent.innerHTML = `
+        <button id="close-modal-btn" class="close-btn">&times;</button>
+        <h3>User Profile</h3>
+        <div class="profile-info">
+          <p><strong>Email:</strong> ${currentUser.email}</p>
+          <button id="logout-btn" class="btn btn-secondary btn-block" style="margin-top:12px;">Sign Out</button>
+        </div>
+        <h4>Your Past Scans</h4>
+        <ul id="history-list" class="history-list">Loading history...</ul>
+      `;
+      document.getElementById('close-modal-btn').addEventListener('click', () => profileModal.classList.add('hidden'));
+      document.getElementById('logout-btn').addEventListener('click', async () => {
+        await supabase.auth.signOut();
+        currentUser = null;
+        alert('Signed out successfully.');
+        profileModal.classList.add('hidden');
+      });
+      loadUserHistory();
+    } else {
+      modalContent.innerHTML = `
+        <button id="close-modal-btn" class="close-btn">&times;</button>
+        <h3>Sign In / Create Account</h3>
+        <div class="profile-info" style="display:flex; flex-direction:column; gap:8px;">
+          <input type="email" id="auth-email" placeholder="Email address" class="text-input" style="margin-bottom:0;">
+          <input type="password" id="auth-password" placeholder="Password" class="text-input" style="margin-bottom:0;">
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button id="login-submit-btn" class="btn btn-primary" style="flex:1;">Sign In</button>
+            <button id="signup-submit-btn" class="btn btn-outline" style="flex:1;">Register</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('close-modal-btn').addEventListener('click', () => profileModal.classList.add('hidden'));
+      
+      document.getElementById('login-submit-btn').addEventListener('click', async () => {
+        const email = document.getElementById('auth-email').value;
+        const password = document.getElementById('auth-password').value;
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) alert(error.message);
+        else {
+          currentUser = data.user;
+          alert('Signed in successfully!');
+          profileModal.classList.add('hidden');
+        }
+      });
 
-    const countElem = document.getElementById('scam-count');
-    countElem.textContent = parseInt(countElem.textContent || 0) + 1;
+      document.getElementById('signup-submit-btn').addEventListener('click', async () => {
+        const email = document.getElementById('auth-email').value;
+        const password = document.getElementById('auth-password').value;
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) alert(error.message);
+        else {
+          alert('Account created! Check your email to confirm if required, or sign in.');
+        }
+      });
+    }
+  }
+
+  async function loadUserHistory() {
+    if (!currentUser) return;
+    const { data, error } = await supabase
+      .from('scan_history')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    const historyList = document.getElementById('history-list');
+    if (!historyList) return;
+
+    if (error || !data || data.length === 0) {
+      historyList.innerHTML = `<li>No scan history recorded yet.</li>`;
+      return;
+    }
+
+    historyList.innerHTML = data.map(scan => `
+      <li><strong>[${scan.scan_type.toUpperCase()}]</strong> ${scan.scanned_content.substring(0, 35)}... — <strong>Risk: ${scan.risk_score}% (${scan.risk_level})</strong></li>
+    `).join('');
   }
 });
