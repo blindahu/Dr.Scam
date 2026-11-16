@@ -262,7 +262,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // 1. Fetch today's cached quiz or generate it via Gemini AI
     async function loadOrGenerateDailyQuiz() {
         const todayStr = new Date().toISOString().split('T')[0];
-        const GEMINI_API_KEY = "YOUR_AI_STUDIO_KEY"; // Keep your actual key here
 
         console.log("1. Starting loadOrGenerateDailyQuiz for date:", todayStr);
         quizQuestionEl.textContent = "Loading today's AI scam quiz...";
