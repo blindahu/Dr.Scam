@@ -5,7 +5,7 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 
 document.addEventListener("DOMContentLoaded", () => {
     let currentUser = null;
-    let isSignUpMode = false;
+    let authMode = "login"; // "login", "signup", or "forgot"
 
     // --- DOM ELEMENTS ---
     const authModal = document.getElementById("auth-modal");
@@ -20,10 +20,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const authSubtitle = document.getElementById("auth-subtitle");
     const authSubmitBtn = document.getElementById("auth-submit-btn");
     const toggleAuthModeBtn = document.getElementById("toggle-auth-mode");
+    const authSwitchContainer = document.getElementById("auth-switch-container");
     const authSwitchText = document.getElementById("auth-switch-text");
+    
+    const passwordGroup = document.getElementById("password-group");
+    const forgotPasswordLink = document.getElementById("forgot-password-link");
     const signupExtraFields = document.getElementById("signup-extra-fields");
     const signupAgeSelect = document.getElementById("signup-age");
     const authError = document.getElementById("auth-error");
+    const authSuccess = document.getElementById("auth-success");
 
     const profileLoggedOut = document.getElementById("profile-logged-out");
     const profileLoggedIn = document.getElementById("profile-logged-in");
@@ -33,9 +38,47 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveProfileBtn = document.getElementById("save-profile-btn");
     const profileSaveMsg = document.getElementById("profile-save-msg");
 
-    // --- AUTH STATE & MODAL LOGIC ---
-    function openAuthModal() {
+    // --- AUTH MODAL MODES SETUP ---
+    function setAuthMode(mode) {
+        authMode = mode;
         authError.classList.add("hidden");
+        authSuccess.classList.add("hidden");
+        document.getElementById("auth-email").value = "";
+        document.getElementById("auth-password").value = "";
+
+        if (mode === "login") {
+            authTitle.textContent = "Log In to ScamGuard";
+            authSubtitle.textContent = "Access your saved scans, profile settings, and daily quiz progress.";
+            authSubmitBtn.textContent = "Log In";
+            passwordGroup.classList.remove("hidden");
+            signupExtraFields.classList.add("hidden");
+            signupAgeSelect.required = false;
+            authSwitchContainer.classList.remove("hidden");
+            authSwitchText.textContent = "Don't have an account?";
+            toggleAuthModeBtn.textContent = "Sign Up";
+        } else if (mode === "signup") {
+            authTitle.textContent = "Create a ScamGuard Profile";
+            authSubtitle.textContent = "Sign up to track your scans and daily scam quizzes.";
+            authSubmitBtn.textContent = "Create Account";
+            passwordGroup.classList.remove("hidden");
+            signupExtraFields.classList.remove("hidden");
+            signupAgeSelect.required = true;
+            authSwitchContainer.classList.remove("hidden");
+            authSwitchText.textContent = "Already have an account?";
+            toggleAuthModeBtn.textContent = "Log In";
+        } else if (mode === "forgot") {
+            authTitle.textContent = "Reset Your Password";
+            authSubtitle.textContent = "Enter your email address and we'll send you a password reset link.";
+            authSubmitBtn.textContent = "Send Reset Link";
+            passwordGroup.classList.add("hidden");
+            signupExtraFields.classList.add("hidden");
+            signupAgeSelect.required = false;
+            authSwitchContainer.classList.add("hidden"); // hide toggle switch during forgot password
+        }
+    }
+
+    function openAuthModal() {
+        setAuthMode("login");
         authModal.classList.remove("hidden");
     }
 
@@ -48,35 +91,38 @@ document.addEventListener("DOMContentLoaded", () => {
     closeModalBtn.addEventListener("click", closeAuthModal);
 
     toggleAuthModeBtn.addEventListener("click", () => {
-        isSignUpMode = !isSignUpMode;
-        authError.classList.add("hidden");
-        if (isSignUpMode) {
-            authTitle.textContent = "Create a ScamGuard Profile";
-            authSubtitle.textContent = "Sign up to track your scans and daily scam quizzes.";
-            authSubmitBtn.textContent = "Create Account";
-            authSwitchText.textContent = "Already have an account?";
-            toggleAuthModeBtn.textContent = "Log In";
-            signupExtraFields.classList.remove("hidden");
-            signupAgeSelect.required = true;
+        if (authMode === "login") {
+            setAuthMode("signup");
         } else {
-            authTitle.textContent = "Log In to ScamGuard";
-            authSubtitle.textContent = "Access your saved scans, profile settings, and daily quiz progress.";
-            authSubmitBtn.textContent = "Log In";
-            authSwitchText.textContent = "Don't have an account?";
-            toggleAuthModeBtn.textContent = "Sign Up";
-            signupExtraFields.classList.add("hidden");
-            signupAgeSelect.required = false;
+            setAuthMode("login");
         }
     });
 
+    forgotPasswordLink.addEventListener("click", () => {
+        setAuthMode("forgot");
+    });
+
+    // --- FORM SUBMISSION (LOGIN / SIGNUP / FORGOT PASSWORD) ---
     authForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         authError.classList.add("hidden");
+        authSuccess.classList.add("hidden");
         const email = document.getElementById("auth-email").value.trim();
-        const password = document.getElementById("auth-password").value;
 
         try {
-            if (isSignUpMode) {
+            if (authMode === "forgot") {
+                const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+                    redirectTo: window.location.href, // redirects back to app after reset
+                });
+                if (error) throw error;
+                authSuccess.textContent = "✅ Password reset link sent! Check your email inbox.";
+                authSuccess.classList.remove("hidden");
+                return;
+            }
+
+            const password = document.getElementById("auth-password").value;
+
+            if (authMode === "signup") {
                 const displayName = document.getElementById("signup-name").value.trim() || "User";
                 const ageGroup = signupAgeSelect.value;
 
@@ -86,7 +132,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
 
-                const { data, error } = await supabaseClient.auth.signUp({
+                const { error } = await supabaseClient.auth.signUp({
                     email,
                     password,
                     options: {
@@ -95,10 +141,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
 
                 if (error) throw error;
-                alert("Account created! If email confirmation is enabled in Supabase, check your inbox.");
+                alert("Account created successfully!");
                 closeAuthModal();
             } else {
-                const { data, error } = await supabaseClient.auth.signInWithPassword({
+                const { error } = await supabaseClient.auth.signInWithPassword({
                     email,
                     password
                 });
@@ -116,7 +162,7 @@ document.addEventListener("DOMContentLoaded", () => {
         await supabaseClient.auth.signOut();
     });
 
-    // Listen to Supabase Auth changes
+    // Listen to Supabase Auth state changes
     supabaseClient.auth.onAuthStateChange((event, session) => {
         currentUser = session?.user || null;
         if (currentUser) {
@@ -206,55 +252,128 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     ];
 
-    let currentQuizIndex = 0;
     const quizQuestionEl = document.getElementById("quiz-question");
     const quizOptionsEl = document.getElementById("quiz-options");
     const quizFeedbackEl = document.getElementById("quiz-feedback");
     const nextQuizBtn = document.getElementById("next-quiz-btn");
 
-    function loadQuiz() {
-        const q = quizQuestions[currentQuizIndex];
+    let currentDailyQuiz = null;
+
+    // 1. Fetch today's cached quiz or generate it via Gemini AI
+    async function loadOrGenerateDailyQuiz() {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const GEMINI_API_KEY = "YOUR_AI_STUDIO_KEY"; // Keep your actual key here
+
+        console.log("1. Starting loadOrGenerateDailyQuiz for date:", todayStr);
+        quizQuestionEl.textContent = "Loading today's AI scam quiz...";
+        quizOptionsEl.innerHTML = "";
+
+        try {
+            console.log("2. Checking Supabase cache...");
+            let { data: existingQuiz, error } = await supabaseClient
+                .from('daily_quizzes')
+                .select('*')
+                .eq('quiz_date', todayStr)
+                .maybeSingle();
+
+            if (error) {
+                console.log("Supabase select error:", error);
+            }
+
+            if (existingQuiz) {
+                console.log("3. Found existing quiz in Supabase cache:", existingQuiz);
+                currentDailyQuiz = existingQuiz;
+                renderQuiz(currentDailyQuiz);
+                return;
+            }
+
+            console.log("4. No cache found. Calling Gemini API...");
+            const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [{
+                            text: "You are an expert cybersecurity educator. Generate a realistic multiple-choice scam quiz question (phishing, SMS fraud, imposter scam, etc.) for users ages 13+. Output strict JSON with keys: question (string), options (array of 3 strings), correct_index (integer 0-2), explanation (string)."
+                        }]
+                    }],
+                    generationConfig: { responseMimeType: "application/json" }
+                })
+            });
+
+            console.log("5. Gemini API response status:", aiResponse.status);
+            const aiData = await aiResponse.json();
+
+            if (!aiResponse.ok) {
+                throw new Error(aiData.error?.message || `API Error: ${aiResponse.status}`);
+            }
+
+            const quizJson = JSON.parse(aiData.candidates[0].content.parts[0].text);
+            console.log("6. Parsed Gemini Quiz JSON:", quizJson);
+
+            // Save new quiz into Supabase cache
+            const { data: insertedQuiz, error: insertError } = await supabaseClient
+                .from('daily_quizzes')
+                .insert([{
+                    quiz_date: todayStr,
+                    question: quizJson.question,
+                    options: quizJson.options,
+                    correct_index: quizJson.correct_index,
+                    explanation: quizJson.explanation
+                }])
+                .select()
+                .single();
+
+            if (insertError) {
+                console.log("Supabase insert error:", insertError);
+                throw insertError;
+            }
+
+            console.log("7. Successfully saved to Supabase and rendering!");
+            currentDailyQuiz = insertedQuiz;
+            renderQuiz(currentDailyQuiz);
+
+        } catch (err) {
+            console.error("❌ Error in loadOrGenerateDailyQuiz catch block:", err);
+            // Fallback default question if offline/error
+            renderQuiz({
+                question: "You receive an unexpected urgent text about an unpaid package fee. What should you do?",
+                options: ["Click the link to check", "Pay the small fee", "Ignore and delete the text"],
+                correct_index: 2,
+                explanation: "Unexpected delivery fee texts are a classic phishing scam."
+            });
+        }
+    }
+
+    // 2. Render the single daily quiz into your UI elements
+    function renderQuiz(q) {
         quizQuestionEl.textContent = q.question;
         quizOptionsEl.innerHTML = "";
         quizFeedbackEl.classList.add("hidden");
-        nextQuizBtn.classList.add("hidden");
+        nextQuizBtn.classList.add("hidden"); // Daily quiz only has 1 question per day
 
         q.options.forEach((opt, index) => {
             const btn = document.createElement("button");
             btn.className = "quiz-option-btn";
             btn.textContent = opt;
-            btn.addEventListener("click", () => checkAnswer(index, q.correct));
+            btn.addEventListener("click", () => checkAnswer(index, q.correct_index, q.explanation));
             quizOptionsEl.appendChild(btn);
         });
     }
 
-    function checkAnswer(selected, correct) {
+    // 3. Handle answer validation with your custom styling
+    function checkAnswer(selected, correct, explanation) {
         quizFeedbackEl.classList.remove("hidden");
         if (selected === correct) {
-            quizFeedbackEl.innerHTML = `<span style="color:var(--safe); font-weight:bold;">Correct! 🎉</span> You spotted the red flag.`;
+            quizFeedbackEl.innerHTML = `<span style="color:var(--safe); font-weight:bold;">Correct! 🎉</span> ${explanation}`;
         } else {
-            quizFeedbackEl.innerHTML = `<span style="color:var(--danger); font-weight:bold;">Not quite. ⚠️</span> That is a common scam tactic.`;
+            quizFeedbackEl.innerHTML = `<span style="color:var(--danger); font-weight:bold;">Not quite. ⚠️</span> ${explanation}`;
         }
         quizOptionsEl.querySelectorAll("button").forEach(b => b.disabled = true);
-        if (currentQuizIndex < quizQuestions.length - 1) {
-            nextQuizBtn.classList.remove("hidden");
-        } else {
-            nextQuizBtn.textContent = "Restart Daily Quiz";
-            nextQuizBtn.classList.remove("hidden");
-        }
     }
 
-    nextQuizBtn.addEventListener("click", () => {
-        if (currentQuizIndex < quizQuestions.length - 1) {
-            currentQuizIndex++;
-        } else {
-            currentQuizIndex = 0;
-            nextQuizBtn.textContent = "Next Question";
-        }
-        loadQuiz();
-    });
-
-    loadQuiz();
+    // Initialize on page load
+    loadOrGenerateDailyQuiz();
 
     // --- MESSAGE SCANNER ENGINE ---
     const scanBtn = document.getElementById("scan-btn");
@@ -306,17 +425,18 @@ document.addEventListener("DOMContentLoaded", () => {
             riskBadge.className = "badge danger";
         }
 
-        reasons.forEach(r => {
+reasons.forEach(r => {
             const div = document.createElement("div");
             div.className = "breakdown-item";
             div.innerHTML = r;
             breakdownList.appendChild(div);
         });
 
-        try {
-            await supabaseClient.from("scam_reports").insert([{
+      try {
+            await supabaseClient.from("scan_history").insert([{
                 user_id: currentUser ? currentUser.id : null,
-                content_snippet: rawText.substring(0, 120),
+                scanned_content: rawText.substring(0, 120),
+                scan_type: "message",
                 risk_level: riskBadge.textContent,
                 risk_score: riskScore
             }]);

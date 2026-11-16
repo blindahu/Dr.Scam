@@ -147,7 +147,7 @@
         </section>
     </main>
 
-    <!-- LOGIN / SIGNUP MODAL -->
+    <!-- LOGIN / SIGNUP / FORGOT PASSWORD MODAL -->
     <div id="auth-modal" class="modal hidden">
         <div class="modal-content card">
             <div class="modal-header">
@@ -161,10 +161,14 @@
                     <label for="auth-email">Email Address:</label>
                     <input type="email" id="auth-email" required placeholder="you@example.com">
                 </div>
-                <div class="form-group">
-                    <label for="auth-password">Password (min 6 characters):</label>
+                <div class="form-group" id="password-group">
+                    <div class="password-label-row">
+                        <label for="auth-password">Password (min 6 characters):</label>
+                        <button type="button" id="forgot-password-link" class="link-btn-small">Forgot Password?</button>
+                    </div>
                     <input type="password" id="auth-password" required minlength="6" placeholder="••••••••">
                 </div>
+                
                 <div id="signup-extra-fields" class="hidden">
                     <div class="form-group">
                         <label for="signup-name">Your Name:</label>
@@ -182,10 +186,11 @@
                 </div>
 
                 <p id="auth-error" class="error-text hidden"></p>
+                <p id="auth-success" class="status-msg hidden"></p>
                 <button type="submit" id="auth-submit-btn" class="btn-primary">Log In</button>
             </form>
 
-            <div class="auth-switch">
+            <div class="auth-switch" id="auth-switch-container">
                 <span id="auth-switch-text">Don't have an account?</span>
                 <button type="button" id="toggle-auth-mode" class="link-btn">Sign Up</button>
             </div>
@@ -195,7 +200,9 @@
     <footer class="app-footer">
         <p>&copy; 2026 ScamGuard. Designed for all ages to browse safely and securely.</p>
     </footer>
+    
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="script.js"></script>
+
 </body>
 </html>
