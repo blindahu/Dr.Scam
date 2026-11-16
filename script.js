@@ -1,6 +1,4 @@
 // --- SUPABASE CONFIGURATION ---
-const SUPABASE_URL = 'https://arkosoknmzfthvqvpxvb.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_i9UzYae8ms1yCkdOxRa7vw_uTpLjaSI';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -260,7 +258,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentDailyQuiz = null;
 
     // 1. Fetch today's cached quiz or generate it via Gemini AI
-    async function loadOrGenerateDailyQuiz() {
+ async function loadOrGenerateDailyQuiz() {
         const todayStr = new Date().toISOString().split('T')[0];
 
         console.log("1. Starting loadOrGenerateDailyQuiz for date:", todayStr);
@@ -293,7 +291,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: JSON.stringify({
                     contents: [{
                         parts: [{
-                            text: "You are an expert cybersecurity educator. Generate a realistic multiple-choice scam quiz question (phishing, SMS fraud, imposter scam, etc.) for users ages 13+. Output strict JSON with keys: question (string), options (array of 3 strings), correct_index (integer 0-2), explanation (string)."
+                            text: "You are an expert cybersecurity educator. Generate a realistic multiple-choice scam quiz question (phishing, SMS fraud, imposter scam, etc.) for users ages 13+. Output strict JSON with keys: question (string), options (array of 3 strings), correct_index (integer 0-2), option_explanations (array of 3 strings explaining why each corresponding option is correct or a risky mistake)."
                         }]
                     }],
                     generationConfig: { responseMimeType: "application/json" }
@@ -310,7 +308,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const quizJson = JSON.parse(aiData.candidates[0].content.parts[0].text);
             console.log("6. Parsed Gemini Quiz JSON:", quizJson);
 
-            // Save new quiz into Supabase cache
+            // Save new quiz into Supabase cache using option_explanations
             const { data: insertedQuiz, error: insertError } = await supabaseClient
                 .from('daily_quizzes')
                 .insert([{
@@ -318,7 +316,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     question: quizJson.question,
                     options: quizJson.options,
                     correct_index: quizJson.correct_index,
-                    explanation: quizJson.explanation
+                    option_explanations: quizJson.option_explanations
                 }])
                 .select()
                 .single();
@@ -335,40 +333,74 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             console.error("❌ Error in loadOrGenerateDailyQuiz catch block:", err);
             // Fallback default question if offline/error
-            renderQuiz({
+           renderQuiz({
                 question: "You receive an unexpected urgent text about an unpaid package fee. What should you do?",
                 options: ["Click the link to check", "Pay the small fee", "Ignore and delete the text"],
                 correct_index: 2,
-                explanation: "Unexpected delivery fee texts are a classic phishing scam."
+                option_explanations: [
+                    "Clicking links in unverified texts leads straight to credential-harvesting phishing sites.",
+                    "Paying small fees on external links hands your financial details directly to scammers.",
+                    "Correct! Legitimate postal services will never demand impromptu fees via random text messages."
+                ]
             });
         }
     }
-
     // 2. Render the single daily quiz into your UI elements
-    function renderQuiz(q) {
+  function renderQuiz(q) {
         quizQuestionEl.textContent = q.question;
         quizOptionsEl.innerHTML = "";
         quizFeedbackEl.classList.add("hidden");
-        nextQuizBtn.classList.add("hidden"); // Daily quiz only has 1 question per day
+        nextQuizBtn.classList.add("hidden");
 
         q.options.forEach((opt, index) => {
             const btn = document.createElement("button");
             btn.className = "quiz-option-btn";
             btn.textContent = opt;
-            btn.addEventListener("click", () => checkAnswer(index, q.correct_index, q.explanation));
+            // Pass the whole quiz object so checkAnswer can access all option explanations
+            btn.addEventListener("click", () => checkAnswer(index, q));
             quizOptionsEl.appendChild(btn);
         });
     }
-
     // 3. Handle answer validation with your custom styling
-    function checkAnswer(selected, correct, explanation) {
+   function checkAnswer(selectedIndex, quiz) {
+        const isCorrect = selectedIndex === quiz.correct_index;
         quizFeedbackEl.classList.remove("hidden");
-        if (selected === correct) {
-            quizFeedbackEl.innerHTML = `<span style="color:var(--safe); font-weight:bold;">Correct! 🎉</span> ${explanation}`;
-        } else {
-            quizFeedbackEl.innerHTML = `<span style="color:var(--danger); font-weight:bold;">Not quite. ⚠️</span> ${explanation}`;
-        }
-        quizOptionsEl.querySelectorAll("button").forEach(b => b.disabled = true);
+
+        const buttons = quizOptionsEl.querySelectorAll("button");
+        buttons.forEach((btn, idx) => {
+            btn.disabled = true;
+            if (idx === quiz.correct_index) {
+                btn.style.backgroundColor = "#dcfce7"; // Soft green
+                btn.style.borderColor = "#16a34a";
+            } else if (idx === selectedIndex) {
+                btn.style.backgroundColor = "#fee2e2"; // Soft red
+                btn.style.borderColor = "#dc2626";
+            }
+        });
+
+        let breakdownHTML = `
+            <div style="margin-top: 16px; padding: 14px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0;">
+                <p style="font-weight: 700; margin-bottom: 10px; color: ${isCorrect ? '#15803d' : '#b91c1c'};">
+                    ${isCorrect ? '✅ Spot on! Here is a full breakdown of every option:' : '❌ Not quite! Here is a full breakdown of every option:'}
+                </p>
+                <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">
+        `;
+
+        quiz.options.forEach((optionText, idx) => {
+            const isRightOption = idx === quiz.correct_index;
+            const badge = isRightOption ? "✅ Correct Choice" : "❌ Risky / Wrong";
+            const explanation = quiz.option_explanations?.[idx] || "No detailed explanation provided for this choice.";
+
+            breakdownHTML += `
+                <li style="padding: 10px; border-radius: 6px; background: ${isRightOption ? '#f0fdf4' : '#ffffff'}; border: 1px solid ${isRightOption ? '#bbf7d0' : '#e2e8f0'};">
+                    <strong style="color: ${isRightOption ? '#15803d' : '#334155'};">${badge} — "${optionText}":</strong> 
+                    <span style="display: block; margin-top: 4px; color: #475569; font-size: 0.95em;">${explanation}</span>
+                </li>
+            `;
+        });
+
+        breakdownHTML += `</ul></div>`;
+        quizFeedbackEl.innerHTML = breakdownHTML;
     }
 
     // Initialize on page load
@@ -423,8 +455,7 @@ document.addEventListener("DOMContentLoaded", () => {
             riskBadge.textContent = "High Scam Risk";
             riskBadge.className = "badge danger";
         }
-
-reasons.forEach(r => {
+        reasons.forEach(r => {
             const div = document.createElement("div");
             div.className = "breakdown-item";
             div.innerHTML = r;
