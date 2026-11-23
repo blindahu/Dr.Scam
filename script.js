@@ -1,5 +1,55 @@
 // --- SUPABASE CONFIGURATION ---
+const SUPABASE_URL = 'https://arkosoknmzfthvqvpxvb.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_i9UzYae8ms1yCkdOxRa7vw_uTpLjaSI';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Shared helper that calls your Supabase Edge Function (which holds GEMINI_API_KEY in Supabase Secrets)
+async function callGeminiEdgeFunction(payload) {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/gemini-helper`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Edge Function request failed");
+  }
+  return data;
+}
+
+async function analyzeMessage(userMessage) {
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/check-scam`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        messageText: userMessage,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Something went wrong scanning the message.");
+    }
+
+    console.log("AI Analysis:", data.analysis);
+    return data.analysis;
+
+  } catch (error) {
+    console.error("Scan failed:", error.message);
+    return "Error: Could not analyze the message right now.";
+  }
+}
 
 document.addEventListener("DOMContentLoaded", () => {
     let currentUser = null;
@@ -20,7 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const toggleAuthModeBtn = document.getElementById("toggle-auth-mode");
     const authSwitchContainer = document.getElementById("auth-switch-container");
     const authSwitchText = document.getElementById("auth-switch-text");
-    
+
     const passwordGroup = document.getElementById("password-group");
     const forgotPasswordLink = document.getElementById("forgot-password-link");
     const signupExtraFields = document.getElementById("signup-extra-fields");
@@ -71,7 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
             passwordGroup.classList.add("hidden");
             signupExtraFields.classList.add("hidden");
             signupAgeSelect.required = false;
-            authSwitchContainer.classList.add("hidden"); // hide toggle switch during forgot password
+            authSwitchContainer.classList.add("hidden");
         }
     }
 
@@ -110,7 +160,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             if (authMode === "forgot") {
                 const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
-                    redirectTo: window.location.href, // redirects back to app after reset
+                    redirectTo: window.location.href,
                 });
                 if (error) throw error;
                 authSuccess.textContent = "✅ Password reset link sent! Check your email inbox.";
@@ -160,7 +210,6 @@ document.addEventListener("DOMContentLoaded", () => {
         await supabaseClient.auth.signOut();
     });
 
-    // Listen to Supabase Auth state changes
     supabaseClient.auth.onAuthStateChange((event, session) => {
         currentUser = session?.user || null;
         if (currentUser) {
@@ -187,7 +236,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Save Profile Updates (Name & Age Range) to Supabase
     saveProfileBtn.addEventListener("click", async () => {
         if (!currentUser) return;
         const updatedName = profileNameInput.value.trim();
@@ -220,36 +268,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // --- DAILY QUIZ LOGIC (MAIN PAGE) ---
-    const quizQuestions = [
-        {
-            question: "You get a text saying your package is held at customs and you must click a link to pay a $2.00 fee. What should you do?",
-            options: [
-                "Pay the $2 fee quickly so the package arrives.",
-                "Click the link to check tracking details.",
-                "Ignore and delete the text; postal services don't text for customs fees this way."
-            ],
-            correct: 2
-        },
-        {
-            question: "An unknown caller claims to be from your bank's fraud department and asks for your 6-digit one-time passcode (OTP). What should you do?",
-            options: [
-                "Give them the code to protect your account.",
-                "Hang up immediately—banks will never ask for your OTP over the phone.",
-                "Ask for their employee badge number first."
-            ],
-            correct: 1
-        },
-        {
-            question: "Someone messages you on social media claiming you won a free gift card, but you need to pay a small shipping fee first. What is this?",
-            options: [
-                "A legitimate giveaway promotion.",
-                "An advance-fee scam designed to steal your payment info.",
-                "A standard tax requirement."
-            ],
-            correct: 1
-        }
-    ];
-
     const quizQuestionEl = document.getElementById("quiz-question");
     const quizOptionsEl = document.getElementById("quiz-options");
     const quizFeedbackEl = document.getElementById("quiz-feedback");
@@ -257,8 +275,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let currentDailyQuiz = null;
 
-    // 1. Fetch today's cached quiz or generate it via Gemini AI
- async function loadOrGenerateDailyQuiz() {
+    async function loadOrGenerateDailyQuiz() {
         const todayStr = new Date().toISOString().split('T')[0];
 
         console.log("1. Starting loadOrGenerateDailyQuiz for date:", todayStr);
@@ -284,31 +301,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            console.log("4. No cache found. Calling Gemini API...");
-            const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [{
-                            text: "You are an expert cybersecurity educator. Generate a realistic multiple-choice scam quiz question (phishing, SMS fraud, imposter scam, etc.) for users ages 13+. Output strict JSON with keys: question (string), options (array of 3 strings), correct_index (integer 0-2), option_explanations (array of 3 strings explaining why each corresponding option is correct or a risky mistake)."
-                        }]
-                    }],
-                    generationConfig: { responseMimeType: "application/json" }
-                })
+            console.log("4. No cache found. Calling gemini-helper Edge Function...");
+            const { quizJson } = await callGeminiEdgeFunction({
+                action: "daily_quiz",
+                prompt: "You are an expert cybersecurity educator. Generate a realistic multiple-choice scam quiz question (phishing, SMS fraud, imposter scam, etc.) for users ages 13+. Output strict JSON with keys: question (string), options (array of 3 strings), correct_index (integer 0-2), option_explanations (array of 3 strings explaining why each corresponding option is correct or a risky mistake)."
             });
 
-            console.log("5. Gemini API response status:", aiResponse.status);
-            const aiData = await aiResponse.json();
+            console.log("5. Received Quiz JSON from Edge Function:", quizJson);
 
-            if (!aiResponse.ok) {
-                throw new Error(aiData.error?.message || `API Error: ${aiResponse.status}`);
-            }
-
-            const quizJson = JSON.parse(aiData.candidates[0].content.parts[0].text);
-            console.log("6. Parsed Gemini Quiz JSON:", quizJson);
-
-            // Save new quiz into Supabase cache using option_explanations
             const { data: insertedQuiz, error: insertError } = await supabaseClient
                 .from('daily_quizzes')
                 .insert([{
@@ -326,14 +326,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 throw insertError;
             }
 
-            console.log("7. Successfully saved to Supabase and rendering!");
+            console.log("6. Successfully saved to Supabase and rendering!");
             currentDailyQuiz = insertedQuiz;
             renderQuiz(currentDailyQuiz);
 
         } catch (err) {
             console.error("❌ Error in loadOrGenerateDailyQuiz catch block:", err);
-            // Fallback default question if offline/error
-           renderQuiz({
+            renderQuiz({
                 question: "You receive an unexpected urgent text about an unpaid package fee. What should you do?",
                 options: ["Click the link to check", "Pay the small fee", "Ignore and delete the text"],
                 correct_index: 2,
@@ -345,8 +344,8 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
     }
-    // 2. Render the single daily quiz into your UI elements
-  function renderQuiz(q) {
+
+    function renderQuiz(q) {
         quizQuestionEl.textContent = q.question;
         quizOptionsEl.innerHTML = "";
         quizFeedbackEl.classList.add("hidden");
@@ -356,13 +355,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const btn = document.createElement("button");
             btn.className = "quiz-option-btn";
             btn.textContent = opt;
-            // Pass the whole quiz object so checkAnswer can access all option explanations
             btn.addEventListener("click", () => checkAnswer(index, q));
             quizOptionsEl.appendChild(btn);
         });
     }
-    // 3. Handle answer validation with your custom styling
-   function checkAnswer(selectedIndex, quiz) {
+
+    function checkAnswer(selectedIndex, quiz) {
         const isCorrect = selectedIndex === quiz.correct_index;
         quizFeedbackEl.classList.remove("hidden");
 
@@ -370,10 +368,10 @@ document.addEventListener("DOMContentLoaded", () => {
         buttons.forEach((btn, idx) => {
             btn.disabled = true;
             if (idx === quiz.correct_index) {
-                btn.style.backgroundColor = "#dcfce7"; // Soft green
+                btn.style.backgroundColor = "#dcfce7";
                 btn.style.borderColor = "#16a34a";
             } else if (idx === selectedIndex) {
-                btn.style.backgroundColor = "#fee2e2"; // Soft red
+                btn.style.backgroundColor = "#fee2e2";
                 btn.style.borderColor = "#dc2626";
             }
         });
@@ -393,7 +391,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             breakdownHTML += `
                 <li style="padding: 10px; border-radius: 6px; background: ${isRightOption ? '#f0fdf4' : '#ffffff'}; border: 1px solid ${isRightOption ? '#bbf7d0' : '#e2e8f0'};">
-                    <strong style="color: ${isRightOption ? '#15803d' : '#334155'};">${badge} — "${optionText}":</strong> 
+                    <strong style="color: ${isRightOption ? '#15803d' : '#334155'};">${badge} — "${optionText}":</strong>
                     <span style="display: block; margin-top: 4px; color: #475569; font-size: 0.95em;">${explanation}</span>
                 </li>
             `;
@@ -403,7 +401,6 @@ document.addEventListener("DOMContentLoaded", () => {
         quizFeedbackEl.innerHTML = breakdownHTML;
     }
 
-    // Initialize on page load
     loadOrGenerateDailyQuiz();
 
     // --- MESSAGE SCANNER ENGINE ---
@@ -462,7 +459,7 @@ document.addEventListener("DOMContentLoaded", () => {
             breakdownList.appendChild(div);
         });
 
-      try {
+        try {
             await supabaseClient.from("scan_history").insert([{
                 user_id: currentUser ? currentUser.id : null,
                 scanned_content: rawText.substring(0, 120),
@@ -513,37 +510,85 @@ document.addEventListener("DOMContentLoaded", () => {
     if (SpeechRecognition) {
         const recognition = new SpeechRecognition();
         recognition.lang = "en-US";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
         voiceBtn.addEventListener("click", () => {
-            voiceBtn.textContent = "🛑";
-            recognition.start();
+            try {
+                voiceBtn.textContent = "🛑";
+                console.log("🎤 Starting speech recognition...");
+                recognition.start();
+            } catch (err) {
+                console.error("Failed to start recognition:", err);
+                voiceBtn.textContent = "🎤";
+            }
         });
+
         recognition.onresult = (event) => {
-            chatInput.value = event.results[0][0].transcript;
+            const speechText = event.results[0][0].transcript;
+            console.log("🗣️ Heard:", speechText);
+            chatInput.value = speechText;
             voiceBtn.textContent = "🎤";
             sendChatBtn.click();
         };
-        recognition.onerror = () => { voiceBtn.textContent = "🎤"; };
+
+        recognition.onerror = (event) => {
+            console.error("❌ Speech recognition error:", event.error);
+            voiceBtn.textContent = "🎤";
+        };
+
+        recognition.onend = () => {
+            console.log("🛑 Speech recognition ended.");
+            voiceBtn.textContent = "🎤";
+        };
     } else {
+        console.warn("Speech recognition not supported in this browser.");
         voiceBtn.style.display = "none";
     }
 
-    sendChatBtn.addEventListener("click", () => {
+    let chatHistory = [];
+
+    sendChatBtn.addEventListener("click", async () => {
         const userText = chatInput.value.trim();
         if (!userText) return;
 
         appendMessage("user", userText);
         chatInput.value = "";
 
-        setTimeout(() => {
-            let reply = "Stay calm and don't rush. Legitimate companies never demand secrecy or instant payment. Are they asking for money, a code, or personal details?";
-            const lower = userText.toLowerCase();
-            if (lower.includes("gift card") || lower.includes("crypto") || lower.includes("bitcoin") || lower.includes("wire")) {
-                reply = "🛑 STOP IMMEDIATELY! Asking for gift cards, crypto, or wire transfers is 100% a scam. Hang up right now.";
-            } else if (lower.includes("code") || lower.includes("password") || lower.includes("ssn")) {
-                reply = "🚨 Do NOT share any verification codes, passwords, or your Social Security Number. Real support agents never ask for them.";
-            }
-            appendMessage("bot", reply);
-        }, 500);
+        chatHistory.push({
+            role: "user",
+            parts: [{ text: userText }]
+        });
+
+        const loadingDiv = document.createElement("div");
+        loadingDiv.className = "chat-message bot";
+        loadingDiv.textContent = "Thinking...";
+        chatContainer.appendChild(loadingDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        try {
+            const { reply } = await callGeminiEdgeFunction({
+                action: "chat",
+                history: chatHistory
+            });
+
+            const formattedReply = reply
+                .replace(/### (.*?)(?:\n|$)/g, '<h4 style="margin: 10px 0 4px 0; font-size: 1.05em;">$1</h4>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+            loadingDiv.innerHTML = formattedReply;
+
+            chatHistory.push({
+                role: "model",
+                parts: [{ text: reply }]
+            });
+
+        } catch (err) {
+            console.error("Chat AI Error:", err);
+            loadingDiv.textContent = "Stay calm and don't rush. If someone is demanding gift cards, wire transfers, or codes, stop immediately—it's a scam.";
+        }
+
+        chatContainer.scrollTop = chatContainer.scrollHeight;
     });
 
     chatInput.addEventListener("keypress", (e) => {
