@@ -3,7 +3,7 @@ const SUPABASE_URL = 'https://arkosoknmzfthvqvpxvb.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_i9UzYae8ms1yCkdOxRa7vw_uTpLjaSI';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Shared helper that calls your Supabase Edge Function (which holds GEMINI_API_KEY in Supabase Secrets)
+// Shared helper that calls your Supabase Edge Function (holding GEMINI_API_KEY in Supabase Secrets)
 async function callGeminiEdgeFunction(payload) {
     const response = await fetch(`${SUPABASE_URL}/functions/v1/gemini-helper`, {
         method: "POST",
@@ -15,38 +15,199 @@ async function callGeminiEdgeFunction(payload) {
         body: JSON.stringify(payload),
     });
 
-    const data = await response.json();
+    const textResponse = await response.text();
+    let data;
+    try {
+        data = JSON.parse(textResponse);
+    } catch {
+        throw new Error(`Server returned non-JSON (Status ${response.status}). Check your Edge Function deployment or API key.`);
+    }
+
     if (!response.ok) {
         throw new Error(data.error || "Edge Function request failed");
     }
     return data;
 }
 
-async function analyzeMessage(userMessage) {
+// Calls Gemini via Edge Function for structured scam analysis, with fallback to keyword analysis
+async function analyzeMessageWithAI(userMessage, senderContact = "") {
+    const cleanSender = String(senderContact || "").trim();
+    const senderContextLine = cleanSender
+        ? `Sender Address / Number (the sender who sent this message/email, NOT the recipient): ${cleanSender}\n`
+        : "Sender Address / Number: Not provided\n";
+
+    const prompt = `You are a cybersecurity and scam-detection expert. Analyze the following text message or email—including the sender's email address or phone number if provided (such as lookalike/spoofed domains, free/unusual senders for official brands, or suspicious numbers)—and return STRICT JSON only (no markdown code fences, no extra text) with this exact structure:
+{
+  "scam_percentage": <integer from 0 to 100 representing how likely it is a scam>,
+  "summary": "<one-sentence overall verdict>",
+  "suspicious_parts": [
+    {
+      "snippet": "<exact quote, URL, sender address/number, or phrase that looks suspicious>",
+      "reason": "<clear explanation of why this specific part looks like a scam>"
+    }
+  ],
+  "what_to_do": [
+    "<clear, actionable step 1 for the user>",
+    "<clear, actionable step 2 for the user>",
+    "<clear, actionable step 3 for the user>"
+  ]
+}
+
+` + senderContextLine + `Message to analyze:
+"""` + userMessage + `"""`;
+
     try {
         const data = await callGeminiEdgeFunction({
+            action: "analyze_message",
+            senderContact: cleanSender,
             messageText: userMessage,
+            prompt
         });
 
-        console.log("AI Analysis:", data.analysis);
-        return data.analysis;
-    } catch (error) {
-        console.error("Scan failed:", error.message);
-        return "Error: Could not analyze the message right now.";
+        let parsed = null;
+        if (data?.analysis && typeof data.analysis === "object") {
+            parsed = data.analysis;
+        } else {
+            const rawCandidate =
+                data?.analysis ||
+                data?.result ||
+                data?.reply ||
+                data?.text ||
+                "";
+
+            if (typeof rawCandidate === "string" && rawCandidate.trim()) {
+                const cleaned = rawCandidate
+                    .replace(/^```json\s*/i, "")
+                    .replace(/^```\s*/i, "")
+                    .replace(/```$/i, "")
+                    .trim();
+                parsed = JSON.parse(cleaned);
+            }
+        }
+
+        if (parsed && typeof parsed.scam_percentage === "number") {
+            return {
+                source: "ai",
+                senderContact: cleanSender,
+                scamPercentage: Math.max(0, Math.min(100, Math.round(parsed.scam_percentage))),
+                summary: parsed.summary || "",
+                suspiciousParts: Array.isArray(parsed.suspicious_parts) ? parsed.suspicious_parts : [],
+                whatToDo: Array.isArray(parsed.what_to_do) ? parsed.what_to_do : []
+            };
+        }
+    } catch (err) {
+        console.warn("AI message analysis fell back to local heuristic:", err.message);
     }
+
+    let score = 0;
+    const suspiciousParts = [];
+
+    if (cleanSender) {
+        const isEmail = cleanSender.includes("@");
+        if (isEmail && /(support|security|billing|account|irs|bank|paypal|amazon|apple|netflix).*(gmail|yahoo|hotmail|outlook)\./i.test(cleanSender)) {
+            score += 25;
+            suspiciousParts.push({
+                snippet: cleanSender,
+                reason: "Uses a free personal email domain to claim to be an official organization or support team."
+            });
+        }
+    }
+
+    const urlMatches = userMessage.match(/https?:\/\/\S+/gi) || [];
+    if (urlMatches.length > 0 || /click here|verify|login|reset password|update account/i.test(userMessage)) {
+        score += 35;
+        suspiciousParts.push({
+            snippet: urlMatches[0] || "Link / credential verification request",
+            reason: "Asks you to click a link or enter login/account details, a common phishing tactic."
+        });
+    }
+
+    score = Math.min(100, score);
+    return {
+        source: "fallback",
+        senderContact: cleanSender,
+        scamPercentage: score,
+        summary: score >= 60 ? "This message shows strong signs of a scam." : "No clear scam indicators detected.",
+        suspiciousParts,
+        whatToDo: ["Never share passwords or sensitive codes via links."]
+    };
+}
+
+/**
+ * GEMINI PHONE NUMBER LOOKUP HANDLER (Tab 2)
+ */
+async function handlePhoneCheck(event) {
+    if (event) {
+        event.preventDefault();
+    }
+    
+    const phoneInput = document.getElementById("phone-input").value.trim();
+    const statusBox = document.getElementById("phone-status");
+    const resultsBox = document.getElementById("phone-results");
+    
+    if (!phoneInput) {
+        alert("Please enter a phone number.");
+        return;
+    }
+
+    resultsBox.classList.remove("hidden");
+    statusBox.innerHTML = `<p class="loading-text">Analyzing phone number with AI...</p>`;
+
+    try {
+        const data = await callGeminiEdgeFunction({
+            action: "analyze_phone",
+            phone: phoneInput
+        });
+
+        const p = data.phone; 
+        
+        // Extract numeric risk percentage safely
+        const riskPercentage = typeof p.risk_percentage === "number" ? p.risk_percentage : 0;
+        
+        // Determine badge styling based on percentage thresholds
+        let badgeClass = "badge safe";
+        if (riskPercentage >= 60) {
+            badgeClass = "badge danger";
+        } else if (riskPercentage >= 25) {
+            badgeClass = "badge warning";
+        }
+
+        statusBox.innerHTML = `
+            <div class="safety-report-card">
+                <p><strong>Phone Number:</strong> ${escapeHtml(phoneInput)}</p>
+                <p><strong>Valid Format:</strong> ${p.valid ? "Yes" : "No"}</p>
+                <p><strong>Carrier:</strong> ${escapeHtml(p.carrier || "Unknown")}</p>
+                <p><strong>Risk Level:</strong> <span class="${badgeClass}">${riskPercentage}% Risk</span></p>
+                <p><strong>AI Analysis:</strong> ${escapeHtml(p.description || "No additional details provided.")}</p>
+                ${data.modelUsed ? `<small class="text-muted">Analyzed using: ${data.modelUsed}</small>` : ""}
+            </div>
+        `;
+
+    } catch (err) {
+        console.error("Phone lookup failed:", err);
+        statusBox.innerHTML = `<p class="error-text">❌ Lookup Error: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+/**
+ * Utility helper to prevent XSS
+ */
+function escapeHtml(str) {
+    return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
     let currentUser = null;
-    let authMode = "login"; // "login", "signup", or "forgot"
+    let authMode = "login";
 
-    // --- DOM ELEMENTS ---
     const authModal = document.getElementById("auth-modal");
-    const authModalBtn = document.getElementById("auth-modal-btn");
     const profileOpenAuthBtn = document.getElementById("profile-open-auth-btn");
     const closeModalBtn = document.getElementById("close-modal-btn");
-    const logoutBtn = document.getElementById("logout-btn");
-    const userDisplay = document.getElementById("user-display");
 
     const authForm = document.getElementById("auth-form");
     const authTitle = document.getElementById("auth-title");
@@ -71,6 +232,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveProfileBtn = document.getElementById("save-profile-btn");
     const profileSaveMsg = document.getElementById("profile-save-msg");
 
+    // --- PHONE CHECK EVENT LISTENERS ---
+    const phoneCheckBtn = document.getElementById("phone-check-btn");
+    if (phoneCheckBtn) {
+        phoneCheckBtn.addEventListener("click", handlePhoneCheck);
+    }
+
+    const phoneInputEl = document.getElementById("phone-input");
+    if (phoneInputEl) {
+        phoneInputEl.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                handlePhoneCheck(e);
+            }
+        });
+    }
+
     // --- AUTH MODAL MODES SETUP ---
     function setAuthMode(mode) {
         authMode = mode;
@@ -82,7 +258,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (passEl) passEl.value = "";
 
         if (mode === "login") {
-            if (authTitle) authTitle.textContent = "Log In to Dr. Scam";
+            if (authTitle) authTitle.textContent = "Log In to ScamGuard";
             if (authSubtitle) authSubtitle.textContent = "Access your saved scans, profile settings, and daily quiz progress.";
             if (authSubmitBtn) authSubmitBtn.textContent = "Log In";
             passwordGroup?.classList.remove("hidden");
@@ -92,7 +268,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (authSwitchText) authSwitchText.textContent = "Don't have an account?";
             if (toggleAuthModeBtn) toggleAuthModeBtn.textContent = "Sign Up";
         } else if (mode === "signup") {
-            if (authTitle) authTitle.textContent = "Create a Dr. Scam Profile";
+            if (authTitle) authTitle.textContent = "Create a ScamGuard Profile";
             if (authSubtitle) authSubtitle.textContent = "Sign up to track your scans and daily scam quizzes.";
             if (authSubmitBtn) authSubmitBtn.textContent = "Create Account";
             passwordGroup?.classList.remove("hidden");
@@ -121,7 +297,6 @@ document.addEventListener("DOMContentLoaded", () => {
         authModal?.classList.add("hidden");
     }
 
-    authModalBtn?.addEventListener("click", openAuthModal);
     profileOpenAuthBtn?.addEventListener("click", openAuthModal);
     closeModalBtn?.addEventListener("click", closeAuthModal);
 
@@ -137,7 +312,6 @@ document.addEventListener("DOMContentLoaded", () => {
         setAuthMode("forgot");
     });
 
-    // --- FORM SUBMISSION (LOGIN / SIGNUP / FORGOT PASSWORD) ---
     authForm?.addEventListener("submit", async (e) => {
         e.preventDefault();
         authError?.classList.add("hidden");
@@ -199,10 +373,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    logoutBtn?.addEventListener("click", async () => {
-        await supabaseClient.auth.signOut();
-    });
-
     supabaseClient.auth.onAuthStateChange((event, session) => {
         currentUser = session?.user || null;
         if (currentUser) {
@@ -210,20 +380,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const name = meta.display_name || currentUser.email.split("@")[0];
             const ageRange = meta.age_group || "19-64";
 
-            if (userDisplay) userDisplay.textContent = `Hi, ${name} (${ageRange})`;
-            authModalBtn?.classList.add("hidden");
-            logoutBtn?.classList.remove("hidden");
-
             profileLoggedOut?.classList.add("hidden");
             profileLoggedIn?.classList.remove("hidden");
             if (profileEmailInput) profileEmailInput.value = currentUser.email;
             if (profileNameInput) profileNameInput.value = meta.display_name || "";
             if (profileAgeSelect) profileAgeSelect.value = ageRange;
         } else {
-            if (userDisplay) userDisplay.textContent = "Guest Mode";
-            authModalBtn?.classList.remove("hidden");
-            logoutBtn?.classList.add("hidden");
-
             profileLoggedOut?.classList.remove("hidden");
             profileLoggedIn?.classList.add("hidden");
         }
@@ -242,9 +404,6 @@ document.addEventListener("DOMContentLoaded", () => {
             if (profileSaveMsg) {
                 profileSaveMsg.textContent = "✅ Profile and age range updated!";
                 profileSaveMsg.classList.remove("hidden");
-            }
-            if (userDisplay) {
-                userDisplay.textContent = `Hi, ${updatedName || currentUser.email.split("@")[0]} (${updatedAge})`;
             }
             setTimeout(() => profileSaveMsg?.classList.add("hidden"), 3000);
         }
@@ -280,36 +439,26 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!quizQuestionEl || !quizOptionsEl) return;
         const todayStr = new Date().toISOString().split('T')[0];
 
-        console.log("1. Starting loadOrGenerateDailyQuiz for date:", todayStr);
         quizQuestionEl.textContent = "Loading today's AI scam quiz...";
         quizOptionsEl.innerHTML = "";
 
         try {
-            console.log("2. Checking Supabase cache...");
             let { data: existingQuiz, error } = await supabaseClient
                 .from('daily_quizzes')
                 .select('*')
                 .eq('quiz_date', todayStr)
                 .maybeSingle();
 
-            if (error) {
-                console.log("Supabase select error:", error);
-            }
-
             if (existingQuiz) {
-                console.log("3. Found existing quiz in Supabase cache:", existingQuiz);
                 currentDailyQuiz = existingQuiz;
                 renderQuiz(currentDailyQuiz);
                 return;
             }
 
-            console.log("4. No cache found. Calling gemini-helper Edge Function...");
             const { quizJson } = await callGeminiEdgeFunction({
                 action: "daily_quiz",
                 prompt: "You are an expert cybersecurity educator. Generate a realistic multiple-choice scam quiz question (phishing, SMS fraud, imposter scam, etc.) for users ages 13+. Output strict JSON with keys: question (string), options (array of 3 strings), correct_index (integer 0-2), option_explanations (array of 3 strings explaining why each corresponding option is correct or a risky mistake)."
             });
-
-            console.log("5. Received Quiz JSON from Edge Function:", quizJson);
 
             const { data: insertedQuiz, error: insertError } = await supabaseClient
                 .from('daily_quizzes')
@@ -323,16 +472,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 .select()
                 .single();
 
-            if (insertError) {
-                console.log("Supabase insert error:", insertError);
-                throw insertError;
-            }
+            if (insertError) throw insertError;
 
-            console.log("6. Successfully saved to Supabase and rendering!");
             currentDailyQuiz = insertedQuiz;
             renderQuiz(currentDailyQuiz);
         } catch (err) {
-            console.error("❌ Error in loadOrGenerateDailyQuiz catch block:", err);
+            console.error("❌ Error loading quiz:", err);
             renderQuiz({
                 question: "You receive an unexpected urgent text about an unpaid package fee. What should you do?",
                 options: ["Click the link to check", "Pay the small fee", "Ignore and delete the text"],
@@ -390,7 +535,7 @@ document.addEventListener("DOMContentLoaded", () => {
         quiz.options.forEach((optionText, idx) => {
             const isRightOption = idx === quiz.correct_index;
             const badge = isRightOption ? "✅ Correct Choice" : "❌ Risky / Wrong";
-            const explanation = quiz.option_explanations?.[idx] || "No detailed explanation provided for this choice.";
+            const explanation = quiz.option_explanations?.[idx] || "No detailed explanation provided.";
 
             breakdownHTML += `
                 <li style="padding: 10px; border-radius: 6px; background: ${isRightOption ? '#f0fdf4' : '#ffffff'}; border: 1px solid ${isRightOption ? '#bbf7d0' : '#e2e8f0'};">
@@ -405,201 +550,4 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     loadOrGenerateDailyQuiz();
-
-    // --- MESSAGE SCANNER ENGINE ---
-    const scanBtn = document.getElementById("scan-btn");
-    const messageInput = document.getElementById("message-input");
-    const scanResults = document.getElementById("scan-results");
-    const riskBadge = document.getElementById("risk-badge");
-    const riskScoreText = document.getElementById("risk-score-text");
-    const breakdownList = document.getElementById("breakdown-list");
-
-    scanBtn?.addEventListener("click", async () => {
-        const rawText = messageInput?.value.trim() || "";
-        const text = rawText.toLowerCase();
-        if (!text) {
-            alert("Please paste a text message or email first.");
-            return;
-        }
-
-        scanResults?.classList.remove("hidden");
-        if (breakdownList) breakdownList.innerHTML = "";
-
-        let riskScore = 0;
-        let reasons = [];
-
-        if (text.includes("urgent") || text.includes("immediate action") || text.includes("expires today") || text.includes("act now")) {
-            riskScore += 35;
-            reasons.push("🚨 <strong>Urgency Trap:</strong> Creates artificial panic so you act before verifying.");
-        }
-        if (text.includes("click here") || text.includes("verify") || text.includes("login") || text.includes("http")) {
-            riskScore += 30;
-            reasons.push("🔗 <strong>Suspicious Link / Request:</strong> Directs you to click a link or hand over login credentials.");
-        }
-        if (text.includes("bank") || text.includes("irs") || text.includes("paypal") || text.includes("amazon") || text.includes("suspended")) {
-            riskScore += 35;
-            reasons.push("🏢 <strong>Impersonation Flag:</strong> Claims to be a trusted brand or government agency.");
-        }
-
-        riskScore = Math.min(riskScore, 100);
-        if (riskScoreText) riskScoreText.textContent = `(Scam Score: ${riskScore}/100)`;
-
-        if (riskBadge && breakdownList) {
-            if (riskScore === 0) {
-                riskBadge.textContent = "Safe / Low Risk";
-                riskBadge.className = "badge safe";
-                breakdownList.innerHTML = `<div class="breakdown-item">✅ No standard scam red flags detected. Still, never share passwords or OTP codes.</div>`;
-            } else if (riskScore < 60) {
-                riskBadge.textContent = "Moderate Suspicion";
-                riskBadge.className = "badge warning";
-            } else {
-                riskBadge.textContent = "High Scam Risk";
-                riskBadge.className = "badge danger";
-            }
-
-            reasons.forEach(r => {
-                const div = document.createElement("div");
-                div.className = "breakdown-item";
-                div.innerHTML = r;
-                breakdownList.appendChild(div);
-            });
-        }
-
-        try {
-            await supabaseClient.from("scan_history").insert([{
-                user_id: currentUser ? currentUser.id : null,
-                scanned_content: rawText.substring(0, 120),
-                scan_type: "message",
-                risk_level: riskBadge?.textContent || "Unknown",
-                risk_score: riskScore
-            }]);
-        } catch (err) {
-            console.warn("Supabase logging skipped:", err.message);
-        }
-    });
-
-    // --- PHONE NUMBER LOOKUP ---
-    const phoneCheckBtn = document.getElementById("phone-check-btn");
-    const phoneInput = document.getElementById("phone-input");
-    const phoneResults = document.getElementById("phone-results");
-    const phoneStatus = document.getElementById("phone-status");
-
-    phoneCheckBtn?.addEventListener("click", () => {
-        const number = phoneInput?.value.trim() || "";
-        if (!number) {
-            alert("Please enter a phone number.");
-            return;
-        }
-        phoneResults?.classList.remove("hidden");
-        if (phoneStatus) {
-            if (number.includes("555") || number.includes("800")) {
-                phoneStatus.innerHTML = `<strong style="color:var(--danger)">⚠️ Flagged Number (Score: 85/100):</strong> Reported for impersonation and robocall fraud. Do not answer or call back.`;
-            } else {
-                phoneStatus.innerHTML = `<strong style="color:var(--safe)">✅ Clean Number (Score: 10/100):</strong> No active scam reports found in our database.`;
-            }
-        }
-    });
-
-    // --- TALK / VOICE ASSISTANT ---
-    const chatContainer = document.getElementById("chat-container");
-    const chatInput = document.getElementById("chat-input");
-    const sendChatBtn = document.getElementById("send-chat-btn");
-    const voiceBtn = document.getElementById("voice-btn");
-
-    function appendMessage(sender, text) {
-        if (!chatContainer) return;
-        const msgDiv = document.createElement("div");
-        msgDiv.className = `chat-message ${sender}`;
-        msgDiv.textContent = text;
-        chatContainer.appendChild(msgDiv);
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition && voiceBtn) {
-        const recognition = new SpeechRecognition();
-        recognition.lang = "en-US";
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        voiceBtn.addEventListener("click", () => {
-            try {
-                voiceBtn.textContent = "🛑";
-                console.log("🎤 Starting speech recognition...");
-                recognition.start();
-            } catch (err) {
-                console.error("Failed to start recognition:", err);
-                voiceBtn.textContent = "🎤";
-            }
-        });
-
-        recognition.onresult = (event) => {
-            const speechText = event.results[0][0].transcript;
-            console.log("🗣️ Heard:", speechText);
-            if (chatInput) chatInput.value = speechText;
-            voiceBtn.textContent = "🎤";
-            sendChatBtn?.click();
-        };
-
-        recognition.onerror = (event) => {
-            console.error("❌ Speech recognition error:", event.error);
-            voiceBtn.textContent = "🎤";
-        };
-
-        recognition.onend = () => {
-            console.log("🛑 Speech recognition ended.");
-            voiceBtn.textContent = "🎤";
-        };
-    } else if (voiceBtn) {
-        console.warn("Speech recognition not supported in this browser.");
-        voiceBtn.style.display = "none";
-    }
-
-    let chatHistory = [];
-
-    sendChatBtn?.addEventListener("click", async () => {
-        const userText = chatInput?.value.trim() || "";
-        if (!userText || !chatContainer) return;
-
-        appendMessage("user", userText);
-        if (chatInput) chatInput.value = "";
-
-        chatHistory.push({
-            role: "user",
-            parts: [{ text: userText }]
-        });
-
-        const loadingDiv = document.createElement("div");
-        loadingDiv.className = "chat-message bot";
-        loadingDiv.textContent = "Thinking...";
-        chatContainer.appendChild(loadingDiv);
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-
-        try {
-            const { reply } = await callGeminiEdgeFunction({
-                action: "chat",
-                history: chatHistory
-            });
-
-            const formattedReply = reply
-                .replace(/### (.*?)(?:\n|$)/g, '<h4 style="margin: 10px 0 4px 0; font-size: 1.05em;">$1</h4>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\n/g, '<br>');
-            loadingDiv.innerHTML = formattedReply;
-
-            chatHistory.push({
-                role: "model",
-                parts: [{ text: reply }]
-            });
-        } catch (err) {
-            console.error("Chat AI Error:", err);
-            loadingDiv.textContent = "Stay calm and don't rush. If someone is demanding gift cards, wire transfers, or codes, stop immediately—it's a scam.";
-        }
-
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-    });
-
-    chatInput?.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") sendChatBtn?.click();
-    });
 });

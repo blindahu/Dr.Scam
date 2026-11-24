@@ -6,6 +6,8 @@
     <title>ScamGuard - Protect Your Digital Life</title>
     <!-- Supabase JS Client Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Tesseract.js for client-side OCR image scanning -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -55,10 +57,40 @@
         <section id="scanner" class="tab-content active">
             <div class="card">
                 <h2>Analyze Text Message or Email</h2>
-                <p>Paste suspicious text or email content below to check for red flags, urgency tactics, and threat scores.</p>
+                <p>Paste suspicious text, upload a screenshot, or snap a photo with your camera to check for red flags, urgency tactics, and threat scores.</p>
                 
+                <!-- IMAGE UPLOAD / CAMERA CAPTURE -->
                 <div class="form-group">
-                    <label for="message-input">Paste Message Content:</label>
+                    <label>Upload Screenshot or Take a Camera Photo:</label>
+                    <div class="image-upload-actions">
+                        <label for="image-upload-input" class="btn-outline">🖼️ Upload Image</label>
+                        <input type="file" id="image-upload-input" accept="image/*" class="hidden">
+
+                        <button type="button" id="take-photo-btn" class="btn-outline">📷 Take Photo</button>
+                    </div>
+
+                    <div id="webcam-box" class="webcam-box hidden">
+                        <video id="webcam-video" autoplay playsinline></video>
+                        <canvas id="webcam-canvas" class="hidden"></canvas>
+                        <div class="webcam-actions">
+                            <button type="button" id="snap-photo-btn" class="btn-primary btn-inline">📸 Capture Photo</button>
+                            <button type="button" id="cancel-webcam-btn" class="btn-small">✕ Close Camera</button>
+                        </div>
+                    </div>
+
+                    <p id="camera-error-msg" class="error-text hidden"></p>
+
+                    <div id="image-preview-box" class="image-preview-box hidden">
+                        <img id="image-preview" src="" alt="Uploaded or captured screenshot preview">
+                        <div class="image-preview-footer">
+                            <span id="ocr-status" class="ocr-status">Reading text from image...</span>
+                            <button type="button" id="remove-image-btn" class="btn-small">✕ Remove</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="message-input">Message Content (or extracted text):</label>
                     <textarea id="message-input" rows="6" placeholder="Example: 'URGENT: Your bank account has been locked. Click here immediately to verify your details...'"></textarea>
                 </div>
                 
@@ -67,7 +99,7 @@
                 <div id="scan-results" class="results-box hidden">
                     <h3>Analysis Report</h3>
                     <div class="score-container">
-                        <span class="score-label">Risk Level:</span>
+                        <span class="score-label">Scam Likelihood:</span>
                         <span id="risk-badge" class="badge">Safe</span>
                         <span id="risk-score-text" class="score-number"></span>
                     </div>
@@ -222,7 +254,6 @@
         <p>&copy; 2026 Dr. Scam. Designed for all ages to browse safely and securely.</p>
     </footer>
     
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="script.js"></script>
 
 </body>
