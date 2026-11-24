@@ -92,7 +92,7 @@ async function analyzeMessageWithAI(userMessage, senderContact = "") {
                 scamPercentage: Math.max(0, Math.min(100, Math.round(parsed.scam_percentage))),
                 summary: parsed.summary || "",
                 suspiciousParts: Array.isArray(parsed.suspicious_parts) ? parsed.suspicious_parts : [],
-                whatToDo: Array.isArray(parsed.what_to_do) ? parsed.what_to_do : []
+                whatToDo: Array.isArray(parsed.what_to_do) ? parsed.whatToDo : []
             };
         }
     } catch (err) {
@@ -113,13 +113,35 @@ async function analyzeMessageWithAI(userMessage, senderContact = "") {
         }
     }
 
-    const urlMatches = userMessage.match(/https?:\/\/\S+/gi) || [];
-    if (urlMatches.length > 0 || /click here|verify|login|reset password|update account/i.test(userMessage)) {
-        score += 35;
-        suspiciousParts.push({
-            snippet: urlMatches[0] || "Link / credential verification request",
-            reason: "Asks you to click a link or enter login/account details, a common phishing tactic."
-        });
+    const scamPatterns = [
+        {
+            regex: /(photos|videos|files|data|account).*(deleted|suspended|locked|terminated|expire[sd]?)/i,
+            points: 35,
+            snippet: "Data / account deletion or expiration threat",
+            reason: "Uses fear and urgency around losing photos, files, or account access to pressure immediate action."
+        },
+        {
+            regex: /(unable to renew|payment failed|billing issue|update.*payment|cloud storage)/i,
+            points: 30,
+            snippet: "Cloud storage / payment renewal notice",
+            reason: "Claims a subscription or storage renewal failed and prompts you to update payment details."
+        },
+        {
+            regex: /https?:\/\/\S+|click here|verify|login|reset password|update account|update my payment/i,
+            points: 35,
+            snippet: "Payment / account verification prompt",
+            reason: "Directs you to enter sensitive billing or login credentials outside your official account settings."
+        }
+    ];
+
+    for (const rule of scamPatterns) {
+        if (rule.regex.test(userMessage)) {
+            score += rule.points;
+            suspiciousParts.push({
+                snippet: rule.snippet,
+                reason: rule.reason
+            });
+        }
     }
 
     score = Math.min(100, score);
@@ -129,7 +151,11 @@ async function analyzeMessageWithAI(userMessage, senderContact = "") {
         scamPercentage: score,
         summary: score >= 60 ? "This message shows strong signs of a scam." : "No clear scam indicators detected.",
         suspiciousParts,
-        whatToDo: ["Never share passwords or sensitive codes via links."]
+        whatToDo: [
+            "Do not click payment or account links inside unexpected messages.",
+            "Check your official account or billing page directly in a new browser tab.",
+            "Never share passwords, one-time codes, or card details from a link."
+        ]
     };
 }
 
@@ -231,6 +257,150 @@ document.addEventListener("DOMContentLoaded", () => {
     const profileAgeSelect = document.getElementById("profile-age-group");
     const saveProfileBtn = document.getElementById("save-profile-btn");
     const profileSaveMsg = document.getElementById("profile-save-msg");
+
+    // --- IMAGE UPLOAD, PREVIEW & OCR LOGIC ---
+    const imageUploadInput = document.getElementById("image-upload-input");
+    const imagePreviewBox = document.getElementById("image-preview-box");
+    const imagePreview = document.getElementById("image-preview");
+    const ocrStatus = document.getElementById("ocr-status");
+    const removeImageBtn = document.getElementById("remove-image-btn");
+    const messageInput = document.getElementById("message-input");
+
+    async function handleImageSelected(file) {
+        if (!file || !file.type.startsWith("image/")) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const dataUrl = event.target?.result;
+            if (!dataUrl || !imagePreview || !imagePreviewBox) return;
+
+            imagePreview.src = dataUrl;
+            imagePreviewBox.classList.remove("hidden");
+            if (ocrStatus) {
+                ocrStatus.textContent = `Loaded "${file.name}" — reading text...`;
+            }
+
+            if (typeof window.Tesseract !== "undefined") {
+                try {
+                    const { data } = await window.Tesseract.recognize(dataUrl, "eng");
+                    const extracted = (data?.text || "").trim();
+                    if (extracted && messageInput) {
+                        messageInput.value = extracted;
+                    }
+                    if (ocrStatus) {
+                        ocrStatus.textContent = extracted
+                            ? "Text extracted from image."
+                            : "Image uploaded (no text detected).";
+                    }
+                } catch (err) {
+                    console.error("OCR failed:", err);
+                    if (ocrStatus) {
+                        ocrStatus.textContent = "Image uploaded (could not read text automatically).";
+                    }
+                }
+            } else if (ocrStatus) {
+                ocrStatus.textContent = `Uploaded "${file.name}"`;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    imageUploadInput?.addEventListener("change", (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            handleImageSelected(file);
+        }
+    });
+
+    removeImageBtn?.addEventListener("click", () => {
+        if (imageUploadInput) imageUploadInput.value = "";
+        if (imagePreview) imagePreview.src = "";
+        imagePreviewBox?.classList.add("hidden");
+        if (ocrStatus) ocrStatus.textContent = "Reading text from image...";
+    });
+
+    // --- MESSAGE / EMAIL SCANNER LOGIC (Tab 1) ---
+    const scanBtn = document.getElementById("scan-btn");
+    const scanResultsBox = document.getElementById("scan-results");
+    const riskBadge = document.getElementById("risk-badge");
+    const riskScoreText = document.getElementById("risk-score-text");
+    const breakdownList = document.getElementById("breakdown-list");
+
+    function renderScanReport(report) {
+        if (!scanResultsBox || !riskBadge || !riskScoreText || !breakdownList) return;
+
+        const score = report.scamPercentage ?? 0;
+        riskBadge.className = "badge";
+        if (score >= 60) {
+            riskBadge.classList.add("danger");
+            riskBadge.textContent = "High Risk";
+        } else if (score >= 25) {
+            riskBadge.classList.add("warning");
+            riskBadge.textContent = "Suspicious";
+        } else {
+            riskBadge.classList.add("safe");
+            riskBadge.textContent = "Low Risk";
+        }
+
+        riskScoreText.textContent = `${score}% likelihood`;
+
+        let html = "";
+        if (report.summary) {
+            html += `<div class="breakdown-item"><strong>Verdict:</strong> ${escapeHtml(report.summary)}</div>`;
+        }
+
+        if (Array.isArray(report.suspiciousParts) && report.suspiciousParts.length > 0) {
+            report.suspiciousParts.forEach((part) => {
+                html += `
+                    <div class="breakdown-item suspicious-part">
+                        <span class="suspicious-quote">${escapeHtml(part.snippet || "")}</span>
+                        <p style="margin:0;">${escapeHtml(part.reason || "")}</p>
+                    </div>
+                `;
+            });
+        }
+
+        if (Array.isArray(report.whatToDo) && report.whatToDo.length > 0) {
+            html += `
+                <div class="action-steps-box">
+                    <h4>What to Do Next</h4>
+                    <ol class="action-steps-list">
+                        ${report.whatToDo.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
+                    </ol>
+                </div>
+            `;
+        }
+
+        breakdownList.innerHTML = html || `<div class="breakdown-item">No specific red flags returned.</div>`;
+        scanResultsBox.classList.remove("hidden");
+    }
+
+    scanBtn?.addEventListener("click", async () => {
+        const textToScan = (messageInput?.value || "").trim();
+        if (!textToScan) {
+            alert("Please paste a message or upload an image with text first.");
+            return;
+        }
+
+        scanBtn.disabled = true;
+        scanBtn.textContent = "Scanning...";
+        scanResultsBox?.classList.remove("hidden");
+        if (riskScoreText) riskScoreText.textContent = "Analyzing...";
+        if (breakdownList) breakdownList.innerHTML = `<div class="breakdown-item">Checking message for scam indicators...</div>`;
+
+        try {
+            const report = await analyzeMessageWithAI(textToScan);
+            renderScanReport(report);
+        } catch (err) {
+            console.error("Scan error:", err);
+            if (breakdownList) {
+                breakdownList.innerHTML = `<div class="breakdown-item suspicious-part">Scan failed: ${escapeHtml(err.message)}</div>`;
+            }
+        } finally {
+            scanBtn.disabled = false;
+            scanBtn.textContent = "Scan for Scam";
+        }
+    });
 
     // --- PHONE CHECK EVENT LISTENERS ---
     const phoneCheckBtn = document.getElementById("phone-check-btn");
