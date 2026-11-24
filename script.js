@@ -5,50 +5,35 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 
 // Shared helper that calls your Supabase Edge Function (which holds GEMINI_API_KEY in Supabase Secrets)
 async function callGeminiEdgeFunction(payload) {
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/gemini-helper`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "Edge Function request failed");
-  }
-  return data;
-}
-
-async function analyzeMessage(userMessage) {
-  try {
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/check-scam`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        messageText: userMessage,
-      }),
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/gemini-helper`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify(payload),
     });
 
     const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error || "Something went wrong scanning the message.");
+        throw new Error(data.error || "Edge Function request failed");
     }
+    return data;
+}
 
-    console.log("AI Analysis:", data.analysis);
-    return data.analysis;
+async function analyzeMessage(userMessage) {
+    try {
+        const data = await callGeminiEdgeFunction({
+            messageText: userMessage,
+        });
 
-  } catch (error) {
-    console.error("Scan failed:", error.message);
-    return "Error: Could not analyze the message right now.";
-  }
+        console.log("AI Analysis:", data.analysis);
+        return data.analysis;
+    } catch (error) {
+        console.error("Scan failed:", error.message);
+        return "Error: Could not analyze the message right now.";
+    }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -89,56 +74,58 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- AUTH MODAL MODES SETUP ---
     function setAuthMode(mode) {
         authMode = mode;
-        authError.classList.add("hidden");
-        authSuccess.classList.add("hidden");
-        document.getElementById("auth-email").value = "";
-        document.getElementById("auth-password").value = "";
+        authError?.classList.add("hidden");
+        authSuccess?.classList.add("hidden");
+        const emailEl = document.getElementById("auth-email");
+        const passEl = document.getElementById("auth-password");
+        if (emailEl) emailEl.value = "";
+        if (passEl) passEl.value = "";
 
         if (mode === "login") {
-            authTitle.textContent = "Log In to ScamGuard";
-            authSubtitle.textContent = "Access your saved scans, profile settings, and daily quiz progress.";
-            authSubmitBtn.textContent = "Log In";
-            passwordGroup.classList.remove("hidden");
-            signupExtraFields.classList.add("hidden");
-            signupAgeSelect.required = false;
-            authSwitchContainer.classList.remove("hidden");
-            authSwitchText.textContent = "Don't have an account?";
-            toggleAuthModeBtn.textContent = "Sign Up";
+            if (authTitle) authTitle.textContent = "Log In to Dr. Scam";
+            if (authSubtitle) authSubtitle.textContent = "Access your saved scans, profile settings, and daily quiz progress.";
+            if (authSubmitBtn) authSubmitBtn.textContent = "Log In";
+            passwordGroup?.classList.remove("hidden");
+            signupExtraFields?.classList.add("hidden");
+            if (signupAgeSelect) signupAgeSelect.required = false;
+            authSwitchContainer?.classList.remove("hidden");
+            if (authSwitchText) authSwitchText.textContent = "Don't have an account?";
+            if (toggleAuthModeBtn) toggleAuthModeBtn.textContent = "Sign Up";
         } else if (mode === "signup") {
-            authTitle.textContent = "Create a ScamGuard Profile";
-            authSubtitle.textContent = "Sign up to track your scans and daily scam quizzes.";
-            authSubmitBtn.textContent = "Create Account";
-            passwordGroup.classList.remove("hidden");
-            signupExtraFields.classList.remove("hidden");
-            signupAgeSelect.required = true;
-            authSwitchContainer.classList.remove("hidden");
-            authSwitchText.textContent = "Already have an account?";
-            toggleAuthModeBtn.textContent = "Log In";
+            if (authTitle) authTitle.textContent = "Create a Dr. Scam Profile";
+            if (authSubtitle) authSubtitle.textContent = "Sign up to track your scans and daily scam quizzes.";
+            if (authSubmitBtn) authSubmitBtn.textContent = "Create Account";
+            passwordGroup?.classList.remove("hidden");
+            signupExtraFields?.classList.remove("hidden");
+            if (signupAgeSelect) signupAgeSelect.required = true;
+            authSwitchContainer?.classList.remove("hidden");
+            if (authSwitchText) authSwitchText.textContent = "Already have an account?";
+            if (toggleAuthModeBtn) toggleAuthModeBtn.textContent = "Log In";
         } else if (mode === "forgot") {
-            authTitle.textContent = "Reset Your Password";
-            authSubtitle.textContent = "Enter your email address and we'll send you a password reset link.";
-            authSubmitBtn.textContent = "Send Reset Link";
-            passwordGroup.classList.add("hidden");
-            signupExtraFields.classList.add("hidden");
-            signupAgeSelect.required = false;
-            authSwitchContainer.classList.add("hidden");
+            if (authTitle) authTitle.textContent = "Reset Your Password";
+            if (authSubtitle) authSubtitle.textContent = "Enter your email address and we'll send you a password reset link.";
+            if (authSubmitBtn) authSubmitBtn.textContent = "Send Reset Link";
+            passwordGroup?.classList.add("hidden");
+            signupExtraFields?.classList.add("hidden");
+            if (signupAgeSelect) signupAgeSelect.required = false;
+            authSwitchContainer?.classList.add("hidden");
         }
     }
 
     function openAuthModal() {
         setAuthMode("login");
-        authModal.classList.remove("hidden");
+        authModal?.classList.remove("hidden");
     }
 
     function closeAuthModal() {
-        authModal.classList.add("hidden");
+        authModal?.classList.add("hidden");
     }
 
-    authModalBtn.addEventListener("click", openAuthModal);
-    profileOpenAuthBtn.addEventListener("click", openAuthModal);
-    closeModalBtn.addEventListener("click", closeAuthModal);
+    authModalBtn?.addEventListener("click", openAuthModal);
+    profileOpenAuthBtn?.addEventListener("click", openAuthModal);
+    closeModalBtn?.addEventListener("click", closeAuthModal);
 
-    toggleAuthModeBtn.addEventListener("click", () => {
+    toggleAuthModeBtn?.addEventListener("click", () => {
         if (authMode === "login") {
             setAuthMode("signup");
         } else {
@@ -146,16 +133,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    forgotPasswordLink.addEventListener("click", () => {
+    forgotPasswordLink?.addEventListener("click", () => {
         setAuthMode("forgot");
     });
 
     // --- FORM SUBMISSION (LOGIN / SIGNUP / FORGOT PASSWORD) ---
-    authForm.addEventListener("submit", async (e) => {
+    authForm?.addEventListener("submit", async (e) => {
         e.preventDefault();
-        authError.classList.add("hidden");
-        authSuccess.classList.add("hidden");
-        const email = document.getElementById("auth-email").value.trim();
+        authError?.classList.add("hidden");
+        authSuccess?.classList.add("hidden");
+        const email = document.getElementById("auth-email")?.value.trim() || "";
 
         try {
             if (authMode === "forgot") {
@@ -163,20 +150,24 @@ document.addEventListener("DOMContentLoaded", () => {
                     redirectTo: window.location.href,
                 });
                 if (error) throw error;
-                authSuccess.textContent = "✅ Password reset link sent! Check your email inbox.";
-                authSuccess.classList.remove("hidden");
+                if (authSuccess) {
+                    authSuccess.textContent = "✅ Password reset link sent! Check your email inbox.";
+                    authSuccess.classList.remove("hidden");
+                }
                 return;
             }
 
-            const password = document.getElementById("auth-password").value;
+            const password = document.getElementById("auth-password")?.value || "";
 
             if (authMode === "signup") {
-                const displayName = document.getElementById("signup-name").value.trim() || "User";
-                const ageGroup = signupAgeSelect.value;
+                const displayName = document.getElementById("signup-name")?.value.trim() || "User";
+                const ageGroup = signupAgeSelect?.value || "";
 
                 if (!ageGroup) {
-                    authError.textContent = "Please select your age range before creating an account.";
-                    authError.classList.remove("hidden");
+                    if (authError) {
+                        authError.textContent = "Please select your age range before creating an account.";
+                        authError.classList.remove("hidden");
+                    }
                     return;
                 }
 
@@ -201,12 +192,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 closeAuthModal();
             }
         } catch (err) {
-            authError.textContent = err.message;
-            authError.classList.remove("hidden");
+            if (authError) {
+                authError.textContent = err.message;
+                authError.classList.remove("hidden");
+            }
         }
     });
 
-    logoutBtn.addEventListener("click", async () => {
+    logoutBtn?.addEventListener("click", async () => {
         await supabaseClient.auth.signOut();
     });
 
@@ -217,39 +210,43 @@ document.addEventListener("DOMContentLoaded", () => {
             const name = meta.display_name || currentUser.email.split("@")[0];
             const ageRange = meta.age_group || "19-64";
 
-            userDisplay.textContent = `Hi, ${name} (${ageRange})`;
-            authModalBtn.classList.add("hidden");
-            logoutBtn.classList.remove("hidden");
+            if (userDisplay) userDisplay.textContent = `Hi, ${name} (${ageRange})`;
+            authModalBtn?.classList.add("hidden");
+            logoutBtn?.classList.remove("hidden");
 
-            profileLoggedOut.classList.add("hidden");
-            profileLoggedIn.classList.remove("hidden");
-            profileEmailInput.value = currentUser.email;
-            profileNameInput.value = meta.display_name || "";
-            profileAgeSelect.value = ageRange;
+            profileLoggedOut?.classList.add("hidden");
+            profileLoggedIn?.classList.remove("hidden");
+            if (profileEmailInput) profileEmailInput.value = currentUser.email;
+            if (profileNameInput) profileNameInput.value = meta.display_name || "";
+            if (profileAgeSelect) profileAgeSelect.value = ageRange;
         } else {
-            userDisplay.textContent = "Guest Mode";
-            authModalBtn.classList.remove("hidden");
-            logoutBtn.classList.add("hidden");
+            if (userDisplay) userDisplay.textContent = "Guest Mode";
+            authModalBtn?.classList.remove("hidden");
+            logoutBtn?.classList.add("hidden");
 
-            profileLoggedOut.classList.remove("hidden");
-            profileLoggedIn.classList.add("hidden");
+            profileLoggedOut?.classList.remove("hidden");
+            profileLoggedIn?.classList.add("hidden");
         }
     });
 
-    saveProfileBtn.addEventListener("click", async () => {
+    saveProfileBtn?.addEventListener("click", async () => {
         if (!currentUser) return;
-        const updatedName = profileNameInput.value.trim();
-        const updatedAge = profileAgeSelect.value;
+        const updatedName = profileNameInput?.value.trim() || "";
+        const updatedAge = profileAgeSelect?.value || "19-64";
 
         const { error } = await supabaseClient.auth.updateUser({
             data: { display_name: updatedName, age_group: updatedAge }
         });
 
         if (!error) {
-            profileSaveMsg.textContent = "✅ Profile and age range updated!";
-            profileSaveMsg.classList.remove("hidden");
-            userDisplay.textContent = `Hi, ${updatedName || currentUser.email.split("@")[0]} (${updatedAge})`;
-            setTimeout(() => profileSaveMsg.classList.add("hidden"), 3000);
+            if (profileSaveMsg) {
+                profileSaveMsg.textContent = "✅ Profile and age range updated!";
+                profileSaveMsg.classList.remove("hidden");
+            }
+            if (userDisplay) {
+                userDisplay.textContent = `Hi, ${updatedName || currentUser.email.split("@")[0]} (${updatedAge})`;
+            }
+            setTimeout(() => profileSaveMsg?.classList.add("hidden"), 3000);
         }
     });
 
@@ -259,15 +256,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     tabButtons.forEach(button => {
         button.addEventListener("click", () => {
+            const targetId = button.getAttribute("data-tab");
+            const targetSection = targetId ? document.getElementById(targetId) : null;
+            if (!targetSection) return;
+
             tabButtons.forEach(btn => btn.classList.remove("active"));
             tabContents.forEach(content => content.classList.remove("active"));
 
             button.classList.add("active");
-            document.getElementById(button.getAttribute("data-tab")).classList.add("active");
+            targetSection.classList.add("active");
         });
     });
 
-    // --- DAILY QUIZ LOGIC (MAIN PAGE) ---
+    // --- DAILY QUIZ LOGIC ---
     const quizQuestionEl = document.getElementById("quiz-question");
     const quizOptionsEl = document.getElementById("quiz-options");
     const quizFeedbackEl = document.getElementById("quiz-feedback");
@@ -276,6 +277,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentDailyQuiz = null;
 
     async function loadOrGenerateDailyQuiz() {
+        if (!quizQuestionEl || !quizOptionsEl) return;
         const todayStr = new Date().toISOString().split('T')[0];
 
         console.log("1. Starting loadOrGenerateDailyQuiz for date:", todayStr);
@@ -329,7 +331,6 @@ document.addEventListener("DOMContentLoaded", () => {
             console.log("6. Successfully saved to Supabase and rendering!");
             currentDailyQuiz = insertedQuiz;
             renderQuiz(currentDailyQuiz);
-
         } catch (err) {
             console.error("❌ Error in loadOrGenerateDailyQuiz catch block:", err);
             renderQuiz({
@@ -346,10 +347,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderQuiz(q) {
+        if (!quizQuestionEl || !quizOptionsEl) return;
         quizQuestionEl.textContent = q.question;
         quizOptionsEl.innerHTML = "";
-        quizFeedbackEl.classList.add("hidden");
-        nextQuizBtn.classList.add("hidden");
+        quizFeedbackEl?.classList.add("hidden");
+        nextQuizBtn?.classList.add("hidden");
 
         q.options.forEach((opt, index) => {
             const btn = document.createElement("button");
@@ -361,6 +363,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function checkAnswer(selectedIndex, quiz) {
+        if (!quizFeedbackEl || !quizOptionsEl) return;
         const isCorrect = selectedIndex === quiz.correct_index;
         quizFeedbackEl.classList.remove("hidden");
 
@@ -411,16 +414,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const riskScoreText = document.getElementById("risk-score-text");
     const breakdownList = document.getElementById("breakdown-list");
 
-    scanBtn.addEventListener("click", async () => {
-        const rawText = messageInput.value.trim();
+    scanBtn?.addEventListener("click", async () => {
+        const rawText = messageInput?.value.trim() || "";
         const text = rawText.toLowerCase();
         if (!text) {
             alert("Please paste a text message or email first.");
             return;
         }
 
-        scanResults.classList.remove("hidden");
-        breakdownList.innerHTML = "";
+        scanResults?.classList.remove("hidden");
+        if (breakdownList) breakdownList.innerHTML = "";
 
         let riskScore = 0;
         let reasons = [];
@@ -439,32 +442,35 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         riskScore = Math.min(riskScore, 100);
-        riskScoreText.textContent = `(Scam Score: ${riskScore}/100)`;
+        if (riskScoreText) riskScoreText.textContent = `(Scam Score: ${riskScore}/100)`;
 
-        if (riskScore === 0) {
-            riskBadge.textContent = "Safe / Low Risk";
-            riskBadge.className = "badge safe";
-            breakdownList.innerHTML = `<div class="breakdown-item">✅ No standard scam red flags detected. Still, never share passwords or OTP codes.</div>`;
-        } else if (riskScore < 60) {
-            riskBadge.textContent = "Moderate Suspicion";
-            riskBadge.className = "badge warning";
-        } else {
-            riskBadge.textContent = "High Scam Risk";
-            riskBadge.className = "badge danger";
+        if (riskBadge && breakdownList) {
+            if (riskScore === 0) {
+                riskBadge.textContent = "Safe / Low Risk";
+                riskBadge.className = "badge safe";
+                breakdownList.innerHTML = `<div class="breakdown-item">✅ No standard scam red flags detected. Still, never share passwords or OTP codes.</div>`;
+            } else if (riskScore < 60) {
+                riskBadge.textContent = "Moderate Suspicion";
+                riskBadge.className = "badge warning";
+            } else {
+                riskBadge.textContent = "High Scam Risk";
+                riskBadge.className = "badge danger";
+            }
+
+            reasons.forEach(r => {
+                const div = document.createElement("div");
+                div.className = "breakdown-item";
+                div.innerHTML = r;
+                breakdownList.appendChild(div);
+            });
         }
-        reasons.forEach(r => {
-            const div = document.createElement("div");
-            div.className = "breakdown-item";
-            div.innerHTML = r;
-            breakdownList.appendChild(div);
-        });
 
         try {
             await supabaseClient.from("scan_history").insert([{
                 user_id: currentUser ? currentUser.id : null,
                 scanned_content: rawText.substring(0, 120),
                 scan_type: "message",
-                risk_level: riskBadge.textContent,
+                risk_level: riskBadge?.textContent || "Unknown",
                 risk_score: riskScore
             }]);
         } catch (err) {
@@ -478,17 +484,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const phoneResults = document.getElementById("phone-results");
     const phoneStatus = document.getElementById("phone-status");
 
-    phoneCheckBtn.addEventListener("click", () => {
-        const number = phoneInput.value.trim();
+    phoneCheckBtn?.addEventListener("click", () => {
+        const number = phoneInput?.value.trim() || "";
         if (!number) {
             alert("Please enter a phone number.");
             return;
         }
-        phoneResults.classList.remove("hidden");
-        if (number.includes("555") || number.includes("800")) {
-            phoneStatus.innerHTML = `<strong style="color:var(--danger)">⚠️ Flagged Number (Score: 85/100):</strong> Reported for impersonation and robocall fraud. Do not answer or call back.`;
-        } else {
-            phoneStatus.innerHTML = `<strong style="color:var(--safe)">✅ Clean Number (Score: 10/100):</strong> No active scam reports found in our database.`;
+        phoneResults?.classList.remove("hidden");
+        if (phoneStatus) {
+            if (number.includes("555") || number.includes("800")) {
+                phoneStatus.innerHTML = `<strong style="color:var(--danger)">⚠️ Flagged Number (Score: 85/100):</strong> Reported for impersonation and robocall fraud. Do not answer or call back.`;
+            } else {
+                phoneStatus.innerHTML = `<strong style="color:var(--safe)">✅ Clean Number (Score: 10/100):</strong> No active scam reports found in our database.`;
+            }
         }
     });
 
@@ -499,6 +507,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const voiceBtn = document.getElementById("voice-btn");
 
     function appendMessage(sender, text) {
+        if (!chatContainer) return;
         const msgDiv = document.createElement("div");
         msgDiv.className = `chat-message ${sender}`;
         msgDiv.textContent = text;
@@ -507,7 +516,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
+    if (SpeechRecognition && voiceBtn) {
         const recognition = new SpeechRecognition();
         recognition.lang = "en-US";
         recognition.interimResults = false;
@@ -527,9 +536,9 @@ document.addEventListener("DOMContentLoaded", () => {
         recognition.onresult = (event) => {
             const speechText = event.results[0][0].transcript;
             console.log("🗣️ Heard:", speechText);
-            chatInput.value = speechText;
+            if (chatInput) chatInput.value = speechText;
             voiceBtn.textContent = "🎤";
-            sendChatBtn.click();
+            sendChatBtn?.click();
         };
 
         recognition.onerror = (event) => {
@@ -541,19 +550,19 @@ document.addEventListener("DOMContentLoaded", () => {
             console.log("🛑 Speech recognition ended.");
             voiceBtn.textContent = "🎤";
         };
-    } else {
+    } else if (voiceBtn) {
         console.warn("Speech recognition not supported in this browser.");
         voiceBtn.style.display = "none";
     }
 
     let chatHistory = [];
 
-    sendChatBtn.addEventListener("click", async () => {
-        const userText = chatInput.value.trim();
-        if (!userText) return;
+    sendChatBtn?.addEventListener("click", async () => {
+        const userText = chatInput?.value.trim() || "";
+        if (!userText || !chatContainer) return;
 
         appendMessage("user", userText);
-        chatInput.value = "";
+        if (chatInput) chatInput.value = "";
 
         chatHistory.push({
             role: "user",
@@ -582,7 +591,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 role: "model",
                 parts: [{ text: reply }]
             });
-
         } catch (err) {
             console.error("Chat AI Error:", err);
             loadingDiv.textContent = "Stay calm and don't rush. If someone is demanding gift cards, wire transfers, or codes, stop immediately—it's a scam.";
@@ -591,7 +599,7 @@ document.addEventListener("DOMContentLoaded", () => {
         chatContainer.scrollTop = chatContainer.scrollHeight;
     });
 
-    chatInput.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") sendChatBtn.click();
+    chatInput?.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") sendChatBtn?.click();
     });
 });
