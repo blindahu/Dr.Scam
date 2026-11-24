@@ -258,13 +258,66 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveProfileBtn = document.getElementById("save-profile-btn");
     const profileSaveMsg = document.getElementById("profile-save-msg");
 
-    // --- IMAGE UPLOAD, PREVIEW & OCR LOGIC ---
+    // --- IMAGE UPLOAD, CAMERA CAPTURE, PREVIEW & OCR LOGIC ---
     const imageUploadInput = document.getElementById("image-upload-input");
+    const takePhotoBtn = document.getElementById("take-photo-btn");
+    const webcamBox = document.getElementById("webcam-box");
+    const webcamVideo = document.getElementById("webcam-video");
+    const webcamCanvas = document.getElementById("webcam-canvas");
+    const snapPhotoBtn = document.getElementById("snap-photo-btn");
+    const cancelWebcamBtn = document.getElementById("cancel-webcam-btn");
+    const cameraErrorMsg = document.getElementById("camera-error-msg");
+
     const imagePreviewBox = document.getElementById("image-preview-box");
     const imagePreview = document.getElementById("image-preview");
     const ocrStatus = document.getElementById("ocr-status");
     const removeImageBtn = document.getElementById("remove-image-btn");
     const messageInput = document.getElementById("message-input");
+
+    let webcamStream = null;
+
+    function stopWebcamStream() {
+        if (webcamStream) {
+            webcamStream.getTracks().forEach((track) => track.stop());
+            webcamStream = null;
+        }
+        if (webcamVideo) {
+            webcamVideo.srcObject = null;
+        }
+        webcamBox?.classList.add("hidden");
+    }
+
+    async function runOcrOnDataUrl(dataUrl, label = "image") {
+        if (!dataUrl || !imagePreview || !imagePreviewBox) return;
+
+        imagePreview.src = dataUrl;
+        imagePreviewBox.classList.remove("hidden");
+        if (ocrStatus) {
+            ocrStatus.textContent = `Loaded "${label}" — reading text...`;
+        }
+
+        if (typeof window.Tesseract !== "undefined") {
+            try {
+                const { data } = await window.Tesseract.recognize(dataUrl, "eng");
+                const extracted = (data?.text || "").trim();
+                if (extracted && messageInput) {
+                    messageInput.value = extracted;
+                }
+                if (ocrStatus) {
+                    ocrStatus.textContent = extracted
+                        ? "Text extracted from image."
+                        : "Image uploaded (no text detected).";
+                }
+            } catch (err) {
+                console.error("OCR failed:", err);
+                if (ocrStatus) {
+                    ocrStatus.textContent = "Image uploaded (could not read text automatically).";
+                }
+            }
+        } else if (ocrStatus) {
+            ocrStatus.textContent = `Uploaded "${label}"`;
+        }
+    }
 
     async function handleImageSelected(file) {
         if (!file || !file.type.startsWith("image/")) return;
@@ -272,38 +325,80 @@ document.addEventListener("DOMContentLoaded", () => {
         const reader = new FileReader();
         reader.onload = async (event) => {
             const dataUrl = event.target?.result;
-            if (!dataUrl || !imagePreview || !imagePreviewBox) return;
-
-            imagePreview.src = dataUrl;
-            imagePreviewBox.classList.remove("hidden");
-            if (ocrStatus) {
-                ocrStatus.textContent = `Loaded "${file.name}" — reading text...`;
-            }
-
-            if (typeof window.Tesseract !== "undefined") {
-                try {
-                    const { data } = await window.Tesseract.recognize(dataUrl, "eng");
-                    const extracted = (data?.text || "").trim();
-                    if (extracted && messageInput) {
-                        messageInput.value = extracted;
-                    }
-                    if (ocrStatus) {
-                        ocrStatus.textContent = extracted
-                            ? "Text extracted from image."
-                            : "Image uploaded (no text detected).";
-                    }
-                } catch (err) {
-                    console.error("OCR failed:", err);
-                    if (ocrStatus) {
-                        ocrStatus.textContent = "Image uploaded (could not read text automatically).";
-                    }
-                }
-            } else if (ocrStatus) {
-                ocrStatus.textContent = `Uploaded "${file.name}"`;
-            }
+            if (!dataUrl) return;
+            await runOcrOnDataUrl(dataUrl, file.name);
         };
         reader.readAsDataURL(file);
     }
+
+    takePhotoBtn?.addEventListener("click", async () => {
+        cameraErrorMsg?.classList.add("hidden");
+        if (cameraErrorMsg) cameraErrorMsg.textContent = "";
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            if (cameraErrorMsg) {
+                cameraErrorMsg.textContent = "Camera access is not supported in this browser or requires HTTPS / localhost.";
+                cameraErrorMsg.classList.remove("hidden");
+            }
+            return;
+        }
+
+        try {
+            stopWebcamStream();
+            let stream = null;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: "environment" } },
+                    audio: false
+                });
+            } catch {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: false
+                });
+            }
+            webcamStream = stream;
+            if (webcamVideo) {
+                webcamVideo.srcObject = webcamStream;
+                await webcamVideo.play();
+            }
+            webcamBox?.classList.remove("hidden");
+        } catch (err) {
+            console.error("Webcam error:", err);
+            let friendlyMsg = "Could not open camera. Check browser permissions.";
+            if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+                friendlyMsg = "Camera permission was denied. Allow camera access in your browser settings.";
+            } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+                friendlyMsg = "No camera was found on this device.";
+            } else if (!window.isSecureContext) {
+                friendlyMsg = "Camera requires a secure context (HTTPS or localhost).";
+            }
+            if (cameraErrorMsg) {
+                cameraErrorMsg.textContent = friendlyMsg;
+                cameraErrorMsg.classList.remove("hidden");
+            }
+        }
+    });
+
+    snapPhotoBtn?.addEventListener("click", async () => {
+        if (!webcamVideo || !webcamCanvas) return;
+        const width = webcamVideo.videoWidth || 640;
+        const height = webcamVideo.videoHeight || 480;
+        webcamCanvas.width = width;
+        webcamCanvas.height = height;
+
+        const ctx = webcamCanvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(webcamVideo, 0, 0, width, height);
+
+        const dataUrl = webcamCanvas.toDataURL("image/jpeg", 0.92);
+        stopWebcamStream();
+        await runOcrOnDataUrl(dataUrl, "camera-photo.jpg");
+    });
+
+    cancelWebcamBtn?.addEventListener("click", () => {
+        stopWebcamStream();
+    });
 
     imageUploadInput?.addEventListener("change", (e) => {
         const file = e.target.files?.[0];
