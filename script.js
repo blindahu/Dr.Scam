@@ -36,7 +36,7 @@ async function analyzeMessageWithAI(userMessage, senderContact = "") {
         ? `Sender Address / Number (the sender who sent this message/email, NOT the recipient): ${cleanSender}\n`
         : "Sender Address / Number: Not provided\n";
 
-    const prompt = `You are a cybersecurity and scam-detection expert. Analyze the following text message or email—including the sender's email address or phone number if provided (such as lookalike/spoofed domains, free/unusual senders for official brands, or suspicious numbers)—and return STRICT JSON only (no markdown code fences, no extra text) with this exact structure:
+   const prompt = `You are a cybersecurity and scam-detection expert. Analyze the following text message or email—including the sender's email address or phone number if provided (such as lookalike/spoofed domains, free/unusual senders for official brands, or suspicious numbers)—and return STRICT JSON only (no markdown code fences, no extra text) with this exact structure:
 {
   "scam_percentage": <integer from 0 to 100 representing how likely it is a scam>,
   "summary": "<one-sentence overall verdict>",
@@ -52,6 +52,8 @@ async function analyzeMessageWithAI(userMessage, senderContact = "") {
     "<clear, actionable step 3 for the user>"
   ]
 }
+
+Important: Do NOT flag a recipient or account-holder email listed inside the message body (such as "To:", "Account:", or "Email: user@gmail.com") as a suspicious sender address—only flag an address as a fake sender if it is actually the sender ("From:") or a reply/contact address.
 
 ` + senderContextLine + `Message to analyze:
 """` + userMessage + `"""`;
@@ -166,18 +168,18 @@ async function handlePhoneCheck(event) {
     if (event) {
         event.preventDefault();
     }
-    
-    const phoneInput = document.getElementById("phone-input").value.trim();
+
+    const phoneInput = document.getElementById("phone-input")?.value.trim() || "";
     const statusBox = document.getElementById("phone-status");
     const resultsBox = document.getElementById("phone-results");
-    
+
     if (!phoneInput) {
         alert("Please enter a phone number.");
         return;
     }
 
-    resultsBox.classList.remove("hidden");
-    statusBox.innerHTML = `<p class="loading-text">Analyzing phone number with AI...</p>`;
+    if (resultsBox) resultsBox.classList.remove("hidden");
+    if (statusBox) statusBox.innerHTML = `<p class="loading-text">Analyzing phone number with AI...</p>`;
 
     try {
         const data = await callGeminiEdgeFunction({
@@ -185,12 +187,9 @@ async function handlePhoneCheck(event) {
             phone: phoneInput
         });
 
-        const p = data.phone; 
-        
-        // Extract numeric risk percentage safely
+        const p = data.phone || {};
         const riskPercentage = typeof p.risk_percentage === "number" ? p.risk_percentage : 0;
-        
-        // Determine badge styling based on percentage thresholds
+
         let badgeClass = "badge safe";
         if (riskPercentage >= 60) {
             badgeClass = "badge danger";
@@ -198,20 +197,23 @@ async function handlePhoneCheck(event) {
             badgeClass = "badge warning";
         }
 
-        statusBox.innerHTML = `
-            <div class="safety-report-card">
-                <p><strong>Phone Number:</strong> ${escapeHtml(phoneInput)}</p>
-                <p><strong>Valid Format:</strong> ${p.valid ? "Yes" : "No"}</p>
-                <p><strong>Carrier:</strong> ${escapeHtml(p.carrier || "Unknown")}</p>
-                <p><strong>Risk Level:</strong> <span class="${badgeClass}">${riskPercentage}% Risk</span></p>
-                <p><strong>AI Analysis:</strong> ${escapeHtml(p.description || "No additional details provided.")}</p>
-                ${data.modelUsed ? `<small class="text-muted">Analyzed using: ${data.modelUsed}</small>` : ""}
-            </div>
-        `;
-
+        if (statusBox) {
+            statusBox.innerHTML = `
+                <div class="safety-report-card">
+                    <p><strong>Phone Number:</strong> ${escapeHtml(phoneInput)}</p>
+                    <p><strong>Valid Format:</strong> ${p.valid ? "Yes" : "No"}</p>
+                    <p><strong>Carrier:</strong> ${escapeHtml(p.carrier || "Unknown")}</p>
+                    <p><strong>Risk Level:</strong> <span class="${badgeClass}">${riskPercentage}% Risk</span></p>
+                    <p><strong>AI Analysis:</strong> ${escapeHtml(p.description || "No additional details provided.")}</p>
+                    ${data.modelUsed ? `<small class="text-muted">Analyzed using: ${escapeHtml(data.modelUsed)}</small>` : ""}
+                </div>
+            `;
+        }
     } catch (err) {
         console.error("Phone lookup failed:", err);
-        statusBox.innerHTML = `<p class="error-text">❌ Lookup Error: ${escapeHtml(err.message)}</p>`;
+        if (statusBox) {
+            statusBox.innerHTML = `<p class="error-text">❌ Lookup Error: ${escapeHtml(err.message)}</p>`;
+        }
     }
 }
 
@@ -232,8 +234,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let authMode = "login";
 
     const authModal = document.getElementById("auth-modal");
+    const authModalBtn = document.getElementById("auth-modal-btn");
     const profileOpenAuthBtn = document.getElementById("profile-open-auth-btn");
     const closeModalBtn = document.getElementById("close-modal-btn");
+    const logoutBtn = document.getElementById("logout-btn");
+    const userDisplay = document.getElementById("user-display");
 
     const authForm = document.getElementById("auth-form");
     const authTitle = document.getElementById("auth-title");
@@ -499,18 +504,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // --- PHONE CHECK EVENT LISTENERS ---
     const phoneCheckBtn = document.getElementById("phone-check-btn");
-    if (phoneCheckBtn) {
-        phoneCheckBtn.addEventListener("click", handlePhoneCheck);
-    }
+    phoneCheckBtn?.addEventListener("click", handlePhoneCheck);
 
     const phoneInputEl = document.getElementById("phone-input");
-    if (phoneInputEl) {
-        phoneInputEl.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") {
-                handlePhoneCheck(e);
-            }
-        });
-    }
+    phoneInputEl?.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            handlePhoneCheck(e);
+        }
+    });
 
     // --- AUTH MODAL MODES SETUP ---
     function setAuthMode(mode) {
@@ -562,6 +563,7 @@ document.addEventListener("DOMContentLoaded", () => {
         authModal?.classList.add("hidden");
     }
 
+    authModalBtn?.addEventListener("click", openAuthModal);
     profileOpenAuthBtn?.addEventListener("click", openAuthModal);
     closeModalBtn?.addEventListener("click", closeAuthModal);
 
@@ -638,6 +640,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    logoutBtn?.addEventListener("click", async () => {
+        await supabaseClient.auth.signOut();
+    });
+
     supabaseClient.auth.onAuthStateChange((event, session) => {
         currentUser = session?.user || null;
         if (currentUser) {
@@ -645,12 +651,20 @@ document.addEventListener("DOMContentLoaded", () => {
             const name = meta.display_name || currentUser.email.split("@")[0];
             const ageRange = meta.age_group || "19-64";
 
+            if (userDisplay) userDisplay.textContent = `Hi, ${name} (${ageRange})`;
+            authModalBtn?.classList.add("hidden");
+            logoutBtn?.classList.remove("hidden");
+
             profileLoggedOut?.classList.add("hidden");
             profileLoggedIn?.classList.remove("hidden");
             if (profileEmailInput) profileEmailInput.value = currentUser.email;
             if (profileNameInput) profileNameInput.value = meta.display_name || "";
             if (profileAgeSelect) profileAgeSelect.value = ageRange;
         } else {
+            if (userDisplay) userDisplay.textContent = "Guest Mode";
+            authModalBtn?.classList.remove("hidden");
+            logoutBtn?.classList.add("hidden");
+
             profileLoggedOut?.classList.remove("hidden");
             profileLoggedIn?.classList.add("hidden");
         }
@@ -669,6 +683,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (profileSaveMsg) {
                 profileSaveMsg.textContent = "✅ Profile and age range updated!";
                 profileSaveMsg.classList.remove("hidden");
+            }
+            if (userDisplay) {
+                userDisplay.textContent = `Hi, ${updatedName || currentUser.email.split("@")[0]} (${updatedAge})`;
             }
             setTimeout(() => profileSaveMsg?.classList.add("hidden"), 3000);
         }
@@ -690,6 +707,120 @@ document.addEventListener("DOMContentLoaded", () => {
             button.classList.add("active");
             targetSection.classList.add("active");
         });
+    });
+
+    // --- TALK / VOICE ASSISTANT LOGIC ---
+    const chatContainer = document.getElementById("chat-container");
+    const chatInput = document.getElementById("chat-input");
+    const sendChatBtn = document.getElementById("send-chat-btn");
+    const voiceBtn = document.getElementById("voice-btn");
+
+    function appendMessage(sender, text) {
+        if (!chatContainer) return;
+        const msgDiv = document.createElement("div");
+        msgDiv.className = `chat-message ${sender}`;
+        msgDiv.textContent = text;
+        chatContainer.appendChild(msgDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (voiceBtn && SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.lang = "en-US";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        voiceBtn.addEventListener("click", () => {
+            try {
+                voiceBtn.textContent = "🛑";
+                console.log("🎤 Starting speech recognition...");
+                recognition.start();
+            } catch (err) {
+                console.error("Failed to start recognition:", err);
+                voiceBtn.textContent = "🎤";
+            }
+        });
+
+        recognition.onresult = (event) => {
+            const speechText = event.results[0][0].transcript;
+            console.log("🗣️ Heard:", speechText);
+            if (chatInput) chatInput.value = speechText;
+            voiceBtn.textContent = "🎤";
+            if (sendChatBtn) sendChatBtn.click();
+        };
+
+        recognition.onerror = (event) => {
+            console.error("❌ Speech recognition error:", event.error);
+            voiceBtn.textContent = "🎤";
+        };
+
+        recognition.onend = () => {
+            console.log("🛑 Speech recognition ended.");
+            voiceBtn.textContent = "🎤";
+        };
+    } else if (voiceBtn) {
+        console.warn("Speech recognition not supported in this browser.");
+        voiceBtn.style.display = "none";
+    }
+
+    let chatHistory = [];
+
+    async function handleSendChat() {
+        if (!chatInput || !chatContainer) return;
+        const userText = chatInput.value.trim();
+        if (!userText) return;
+
+        appendMessage("user", userText);
+        chatInput.value = "";
+
+        chatHistory.push({
+            role: "user",
+            parts: [{ text: userText }]
+        });
+
+        const loadingDiv = document.createElement("div");
+        loadingDiv.className = "chat-message bot";
+        loadingDiv.textContent = "Thinking...";
+        chatContainer.appendChild(loadingDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        try {
+            const data = await callGeminiEdgeFunction({
+                action: "chat",
+                history: chatHistory
+            });
+
+            const replyText = data?.reply || data?.text || data?.analysis || "";
+            if (!replyText) {
+                throw new Error("Edge Function returned no reply field");
+            }
+
+            const formattedReply = replyText
+                .replace(/### (.*?)(?:\n|$)/g, '<h4 style="margin: 10px 0 4px 0; font-size: 1.05em;">$1</h4>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+            loadingDiv.innerHTML = formattedReply;
+
+            chatHistory.push({
+                role: "model",
+                parts: [{ text: replyText }]
+            });
+        } catch (err) {
+            console.error("Chat AI Error:", err);
+            loadingDiv.innerHTML = `
+                <strong>⚠️ Chat Error:</strong> ${escapeHtml(err.message)}<br><br>
+                Stay calm and don't rush. If someone is demanding gift cards, wire transfers, or codes, stop immediately—it's a scam.
+            `;
+        }
+
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    sendChatBtn?.addEventListener("click", handleSendChat);
+
+    chatInput?.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") handleSendChat();
     });
 
     // --- DAILY QUIZ LOGIC ---
@@ -714,14 +845,30 @@ document.addEventListener("DOMContentLoaded", () => {
                 .eq('quiz_date', todayStr)
                 .maybeSingle();
 
+            if (error) {
+                console.error("Supabase quiz cache query error:", error);
+            }
+
             if (existingQuiz) {
                 currentDailyQuiz = existingQuiz;
                 renderQuiz(currentDailyQuiz);
                 return;
             }
 
+            const { data: recentRows } = await supabaseClient
+                .from("daily_quizzes")
+                .select("question, quiz_date")
+                .order("quiz_date", { ascending: false })
+                .limit(14);
+
+            const recentQuestions = (recentRows || [])
+                .map((row) => row.question)
+                .filter(Boolean);
+
             const { quizJson } = await callGeminiEdgeFunction({
                 action: "daily_quiz",
+                quizDate: todayStr,
+                recentQuestions,
                 prompt: "You are an expert cybersecurity educator. Generate a realistic multiple-choice scam quiz question (phishing, SMS fraud, imposter scam, etc.) for users ages 13+. Output strict JSON with keys: question (string), options (array of 3 strings), correct_index (integer 0-2), option_explanations (array of 3 strings explaining why each corresponding option is correct or a risky mistake)."
             });
 
@@ -800,12 +947,12 @@ document.addEventListener("DOMContentLoaded", () => {
         quiz.options.forEach((optionText, idx) => {
             const isRightOption = idx === quiz.correct_index;
             const badge = isRightOption ? "✅ Correct Choice" : "❌ Risky / Wrong";
-            const explanation = quiz.option_explanations?.[idx] || "No detailed explanation provided.";
+            const explanation = quiz.option_explanations?.[idx] || "No detailed explanation provided for this choice.";
 
             breakdownHTML += `
                 <li style="padding: 10px; border-radius: 6px; background: ${isRightOption ? '#f0fdf4' : '#ffffff'}; border: 1px solid ${isRightOption ? '#bbf7d0' : '#e2e8f0'};">
-                    <strong style="color: ${isRightOption ? '#15803d' : '#334155'};">${badge} — "${optionText}":</strong>
-                    <span style="display: block; margin-top: 4px; color: #475569; font-size: 0.95em;">${explanation}</span>
+                    <strong style="color: ${isRightOption ? '#15803d' : '#334155'};">${badge} — "${escapeHtml(optionText)}":</strong>
+                    <span style="display: block; margin-top: 4px; color: #475569; font-size: 0.95em;">${escapeHtml(explanation)}</span>
                 </li>
             `;
         });
